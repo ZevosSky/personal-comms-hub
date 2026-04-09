@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <rect width="256" height="256" rx="56" fill="#0f172a" />
+  <g fill="none" stroke="#dbeafe" stroke-linecap="round" stroke-linejoin="round" stroke-width="18">
+    <path d="M72 128h42" />
+    <path d="M114 56v144" />
+    <path d="M114 56h56" />
+    <path d="M114 104h56" />
+    <path d="M114 152h56" />
+    <path d="M114 200h56" />
+  </g>
+  <g fill="#dbeafe">
+    <circle cx="58" cy="128" r="22" />
+    <circle cx="186" cy="56" r="18" />
+    <circle cx="186" cy="104" r="18" />
+    <circle cx="186" cy="152" r="18" />
+    <circle cx="186" cy="200" r="18" />
+  </g>
+</svg>

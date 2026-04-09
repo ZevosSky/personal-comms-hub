@@ -2,13 +2,61 @@
   "name": "comms-app",
   "version": "0.1.0",
   "private": true,
+  "productName": "Comms Hub",
+  "author": "Gary Yang",
   "description": "Desktop message aggregator for web-based communication apps.",
   "main": "electron/main.js",
   "type": "module",
   "scripts": {
     "dev": "concurrently -k \"vite\" \"wait-on tcp:5173 && electron . --dev\"",
     "build": "vite build --base ./",
-    "start": "electron ."
+    "start": "electron .",
+    "dist": "npm run build && electron-builder",
+    "dist:win": "npm run build && electron-builder --win nsis --x64",
+    "dist:linux": "npm run build && electron-builder --linux AppImage --x64"
+  },
+  "build": {
+    "appId": "com.garyyang.commshub",
+    "productName": "Comms Hub",
+    "directories": {
+      "buildResources": "build",
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "asar": true,
+    "win": {
+      "icon": "build/icon.png",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "linux": {
+      "icon": "build/icon.png",
+      "category": "Network",
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": "always",
+      "shortcutName": "Comms Hub"
+    }
   },
   "dependencies": {
     "electron-store": "^10.0.1",
@@ -19,7 +67,8 @@
   "devDependencies": {
     "@vitejs/plugin-react": "^5.0.0",
     "concurrently": "^9.1.2",
-    "electron": "^35.2.0",
+    "electron": "^41.2.0",
+    "electron-builder": "^26.8.1",
     "vite": "^6.3.5",
     "wait-on": "^8.0.3"
   }
