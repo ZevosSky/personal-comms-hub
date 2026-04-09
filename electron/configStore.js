@@ -115,7 +115,8 @@ const schema = {
       activeServiceId: "gmail",
       notificationsEnabled: true,
       memorySaverEnabled: true,
-      sidebarCollapsed: false
+      sidebarCollapsed: false,
+      notificationLastSeenByService: {}
     }
   },
   notificationHistory: {
@@ -139,11 +140,20 @@ const mergeBuiltIns = (storedServices) => {
   const byId = new Map(storedServices.map((service) => [service.id, service]));
 
   return [
-    ...builtInServices.map((builtin) => ({
-      ...builtin,
-      ...(byId.get(builtin.id) ?? {})
-    })),
-    ...storedServices.filter((service) => !builtInServices.some((builtin) => builtin.id === service.id))
+    ...storedServices.map((service) => {
+      const builtin = builtInServices.find((item) => item.id === service.id);
+      return builtin
+        ? {
+            ...builtin,
+            ...service
+          }
+        : service;
+    }),
+    ...builtInServices
+      .filter((builtin) => !byId.has(builtin.id))
+      .map((builtin) => ({
+        ...builtin
+      }))
   ];
 };
 
@@ -178,7 +188,8 @@ export const getAppState = () => {
     activeServiceId: rawUi.activeServiceId ?? services[0]?.id ?? null,
     notificationsEnabled: rawUi.notificationsEnabled ?? true,
     memorySaverEnabled: rawUi.memorySaverEnabled ?? true,
-    sidebarCollapsed: rawUi.sidebarCollapsed ?? false
+    sidebarCollapsed: rawUi.sidebarCollapsed ?? false,
+    notificationLastSeenByService: rawUi.notificationLastSeenByService ?? {}
   };
 
   return {
@@ -254,15 +265,35 @@ export const reorderServices = (serviceIds) => {
 
 export const setUiState = (uiUpdates) => {
   const state = getAppState();
+  const nextLastSeen = uiUpdates.notificationLastSeenByService
+    ? {
+        ...state.ui.notificationLastSeenByService,
+        ...uiUpdates.notificationLastSeenByService
+      }
+    : state.ui.notificationLastSeenByService;
+
   saveAppState({
     services: state.services,
     ui: {
       ...state.ui,
-      ...uiUpdates
+      ...uiUpdates,
+      notificationLastSeenByService: nextLastSeen
     }
   });
 
   return getAppState();
+};
+
+export const markServiceNotificationsSeen = (serviceId) => {
+  if (!serviceId) {
+    return getAppState();
+  }
+
+  return setUiState({
+    notificationLastSeenByService: {
+      [serviceId]: new Date().toISOString()
+    }
+  });
 };
 
 export const appendNotificationHistory = (entry) => {

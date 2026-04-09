@@ -15,6 +15,7 @@ import {
   clearNotificationHistory,
   copyIconToUserData,
   getAppState,
+  markServiceNotificationsSeen,
   removeService,
   reorderServices,
   setUiState,
@@ -39,6 +40,17 @@ const broadcastState = (state) => {
   }
 
   mainWindow.webContents.send("state:updated", state);
+};
+
+const markActiveServiceSeen = () => {
+  const state = getAppState();
+  if (!state.ui.activeServiceId) {
+    return state;
+  }
+
+  const nextState = markServiceNotificationsSeen(state.ui.activeServiceId);
+  broadcastState(nextState);
+  return nextState;
 };
 
 const createWindow = async () => {
@@ -78,6 +90,9 @@ const createWindow = async () => {
   });
 
   mainWindow.setMenuBarVisibility(false);
+  mainWindow.on("focus", () => {
+    markActiveServiceSeen();
+  });
 
   if (isDev) {
     try {
@@ -124,9 +139,10 @@ ipcMain.handle("services:reorder", (_event, serviceIds) => {
 });
 
 ipcMain.handle("ui:set-active-service", (_event, serviceId) => {
-  const state = setUiState({ activeServiceId: serviceId });
-  broadcastState(state);
-  return state;
+  setUiState({ activeServiceId: serviceId });
+  const seenState = markServiceNotificationsSeen(serviceId);
+  broadcastState(seenState);
+  return seenState;
 });
 
 ipcMain.handle("ui:set-notifications", (_event, enabled) => {
@@ -206,6 +222,12 @@ ipcMain.handle("notifications:service-event", (_event, payload) => {
 
 ipcMain.handle("notifications:clear-history", () => {
   const state = clearNotificationHistory();
+  broadcastState(state);
+  return state;
+});
+
+ipcMain.handle("notifications:mark-seen", (_event, serviceId) => {
+  const state = markServiceNotificationsSeen(serviceId);
   broadcastState(state);
   return state;
 });

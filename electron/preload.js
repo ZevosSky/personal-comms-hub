@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld("commsApp", {
   uploadIcon: () => ipcRenderer.invoke("icons:upload"),
   openExternal: (url) => ipcRenderer.invoke("shell:open-external", url),
   notifyServiceEvent: (payload) => ipcRenderer.invoke("notifications:service-event", payload),
+  markNotificationsSeen: (serviceId) => ipcRenderer.invoke("notifications:mark-seen", serviceId),
   clearNotificationHistory: () => ipcRenderer.invoke("notifications:clear-history"),
   getGuestPreloadPath: () => ipcRenderer.invoke("paths:get-guest-preload"),
   onStateUpdated: (callback) => {

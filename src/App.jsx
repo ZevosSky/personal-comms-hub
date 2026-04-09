@@ -183,7 +183,25 @@ function App() {
     appState?.ui?.activeServiceId ?? services.find((service) => service.isEnabled)?.id ?? null;
   const activeService = services.find((service) => service.id === activeServiceId) ?? null;
   const activeIndex = services.findIndex((service) => service.id === activeServiceId);
-  const totalUnread = Object.values(badgeCounts).reduce((sum, count) => sum + Number(count || 0), 0);
+  const notificationCounts = useMemo(() => {
+    const counts = {};
+    const lastSeenByService = appState?.ui?.notificationLastSeenByService ?? {};
+
+    for (const entry of appState?.notificationHistory ?? []) {
+      if (!entry?.serviceId) {
+        continue;
+      }
+
+      const lastSeenAt = lastSeenByService[entry.serviceId];
+      if (lastSeenAt && new Date(entry.createdAt).getTime() <= new Date(lastSeenAt).getTime()) {
+        continue;
+      }
+
+      counts[entry.serviceId] = (counts[entry.serviceId] ?? 0) + 1;
+    }
+
+    return counts;
+  }, [appState?.notificationHistory, appState?.ui?.notificationLastSeenByService]);
   const renderedServices = useMemo(() => {
     if (!activeService || !guestPreloadPath) {
       return [];
@@ -400,6 +418,22 @@ function App() {
     setAppState(nextState);
   };
 
+  const sendTestNotification = async () => {
+    if (!activeService) {
+      return;
+    }
+
+    await window.commsApp.notifyServiceEvent({
+      serviceId: activeService.id,
+      serviceName: activeService.name,
+      source: "test",
+      title: `${activeService.name} test alert`,
+      body: "This is a sample notification from Comms Hub."
+    });
+
+    setStatusMessage(`Sent a test alert for ${activeService.name}.`);
+  };
+
   if (!appState) {
     return <div className="loading-shell">{statusMessage}</div>;
   }
@@ -455,7 +489,9 @@ function App() {
             >
               <span className="service-icon-wrap">
                 <img src={service.iconSource} alt={service.name} className="service-icon" />
-                {badgeCounts[service.id] ? <span className="badge-pill">{badgeCounts[service.id]}</span> : null}
+                {notificationCounts[service.id] ? (
+                  <span className="badge-pill">{notificationCounts[service.id]}</span>
+                ) : null}
               </span>
             </button>
           ))}
@@ -465,14 +501,6 @@ function App() {
         </div>
 
         <div className="rail-footer">
-          <div className="rail-stat">
-            <span>{services.length}</span>
-            <small>apps</small>
-          </div>
-          <div className="rail-stat">
-            <span>{totalUnread}</span>
-            <small>unread</small>
-          </div>
           <button
             className={`rail-settings-button ${appState.ui.sidebarCollapsed ? "" : "active"}`}
             onClick={toggleSidebarCollapsed}
@@ -519,8 +547,8 @@ function App() {
                     <strong>{activeIndex + 1}</strong>
                   </div>
                   <div>
-                    <span className="meta-label">Unread</span>
-                    <strong>{badgeCounts[activeService.id] || 0}</strong>
+                    <span className="meta-label">Alerts</span>
+                    <strong>{notificationCounts[activeService.id] || 0}</strong>
                   </div>
                   <div>
                     <span className="meta-label">Memory</span>
@@ -599,7 +627,9 @@ function App() {
                         <strong>{service.name}</strong>
                         <small>{service.id === activeServiceId ? "Open now" : "Switch view"}</small>
                       </span>
-                      {badgeCounts[service.id] ? <span className="mini-badge">{badgeCounts[service.id]}</span> : null}
+                      {notificationCounts[service.id] ? (
+                        <span className="mini-badge">{notificationCounts[service.id]}</span>
+                      ) : null}
                     </button>
                   ))}
                 </div>
@@ -610,6 +640,11 @@ function App() {
           )}
 
           <div className="sidebar-footer">
+            {activeService ? (
+              <button className="secondary-button sidebar-test-button" onClick={sendTestNotification} type="button">
+                Send test alert
+              </button>
+            ) : null}
             <label className="checkbox-row">
               <input
                 type="checkbox"
@@ -635,27 +670,6 @@ function App() {
       ) : null}
 
       <main className="workspace">
-        <div className="workspace-header">
-          <div>
-            <p className="eyebrow">Active service</p>
-            <h2>{activeService?.name ?? "None"}</h2>
-          </div>
-          <div className="workspace-actions">
-            <div className="workspace-chip">
-              {appState.ui.memorySaverEnabled ? "Memory saver enabled" : "Warm tab caching enabled"}
-            </div>
-            {activeService ? (
-              <button
-                className="secondary-button"
-                onClick={() => window.commsApp.openExternal(activeService.url)}
-                type="button"
-              >
-                Open in browser
-              </button>
-            ) : null}
-          </div>
-        </div>
-
         <div className="workspace-body">
           {!activeService ? (
             <EmptyState />
@@ -686,36 +700,6 @@ function App() {
             ))
           )}
         </div>
-
-        <section className="notification-center">
-          <div className="notification-center-header">
-            <div>
-              <p className="eyebrow">Notification center</p>
-              <h3>Recent activity</h3>
-            </div>
-            <button className="ghost-button" onClick={clearHistory} type="button">
-              Clear
-            </button>
-          </div>
-          <div className="notification-list">
-            {appState.notificationHistory?.length ? (
-              appState.notificationHistory.slice(0, 6).map((entry) => (
-                <article className="notification-item" key={entry.id}>
-                  <div className="notification-item-top">
-                    <strong>{entry.serviceName}</strong>
-                    <span>{new Date(entry.createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</span>
-                  </div>
-                  <p>{entry.title}</p>
-                  <small>{entry.body}</small>
-                </article>
-              ))
-            ) : (
-              <div className="notification-empty">No notifications yet.</div>
-            )}
-          </div>
-        </section>
-
-        <div className="status-bar">{statusMessage}</div>
       </main>
 
       {modalForm ? (
