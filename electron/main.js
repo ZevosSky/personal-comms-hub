@@ -29,7 +29,7 @@ const isDev = process.argv.includes("--dev");
 const guestPreloadPath = path.join(__dirname, "guestPreload.js");
 const appIcon = nativeImage.createFromDataURL(
   `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(
-    "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='18' fill='#0f172a'/><path d='M18 32h12M30 14v36M30 14h10M30 26h10M30 38h10M30 50h10' fill='none' stroke='#e0f2fe' stroke-width='4.5' stroke-linecap='round' stroke-linejoin='round'/><circle cx='16' cy='32' r='7' fill='#e0f2fe'/><circle cx='42' cy='14' r='6' fill='#e0f2fe'/><circle cx='42' cy='26' r='6' fill='#e0f2fe'/><circle cx='42' cy='38' r='6' fill='#e0f2fe'/><circle cx='42' cy='50' r='6' fill='#e0f2fe'/></svg>"
+    "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='18' fill='#0f172a'/><g fill='none' stroke='#e0f2fe' stroke-width='4.5' stroke-linecap='round' stroke-linejoin='round'><line x1='20' y1='32' x2='30' y2='32'/><line x1='30' y1='12' x2='30' y2='52'/><line x1='30' y1='12' x2='38' y2='12'/><line x1='30' y1='25.33' x2='38' y2='25.33'/><line x1='30' y1='38.67' x2='38' y2='38.67'/><line x1='30' y1='52' x2='38' y2='52'/></g><circle cx='14' cy='32' r='6' fill='#e0f2fe'/><circle cx='44' cy='12' r='5.5' fill='#e0f2fe'/><circle cx='44' cy='25.33' r='5.5' fill='#e0f2fe'/><circle cx='44' cy='38.67' r='5.5' fill='#e0f2fe'/><circle cx='44' cy='52' r='5.5' fill='#e0f2fe'/></svg>"
   )}`
 );
 

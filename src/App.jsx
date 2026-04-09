@@ -407,42 +407,42 @@ function App() {
   return (
     <div className={`app-shell ${appState.ui.sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
       <div className="titlebar-drag-region">
-        <div className="titlebar-title">
-          <svg viewBox="0 0 64 64" aria-hidden="true" className="titlebar-mark">
-            <circle cx="16" cy="32" r="7" />
-            <circle cx="42" cy="14" r="6" />
-            <circle cx="42" cy="26" r="6" />
-            <circle cx="42" cy="38" r="6" />
-            <circle cx="42" cy="50" r="6" />
-            <path d="M22 32h8" />
-            <path d="M30 14v36" />
-            <path d="M30 14h12" />
-            <path d="M30 26h12" />
-            <path d="M30 38h12" />
-            <path d="M30 50h12" />
-          </svg>
-          <span>Comms Hub</span>
-        </div>
+          <div className="titlebar-title">
+            <svg viewBox="0 0 64 64" aria-hidden="true" className="titlebar-mark">
+              <line x1="20" y1="32" x2="30" y2="32" />
+              <line x1="30" y1="12" x2="30" y2="52" />
+              <line x1="30" y1="12" x2="38" y2="12" />
+              <line x1="30" y1="25.33" x2="38" y2="25.33" />
+              <line x1="30" y1="38.67" x2="38" y2="38.67" />
+              <line x1="30" y1="52" x2="38" y2="52" />
+              <circle cx="14" cy="32" r="6" />
+              <circle cx="44" cy="12" r="5.5" />
+              <circle cx="44" cy="25.33" r="5.5" />
+              <circle cx="44" cy="38.67" r="5.5" />
+              <circle cx="44" cy="52" r="5.5" />
+            </svg>
+            <span>Comms Hub</span>
+          </div>
       </div>
 
       <aside className="icon-rail">
         <div className="rail-brand" aria-label="Comms Hub">
-          <div className="brand-badge">
-            <svg viewBox="0 0 64 64" aria-hidden="true" className="brand-mark">
-              <circle cx="16" cy="32" r="7" />
-              <circle cx="36" cy="14" r="6" />
-              <circle cx="36" cy="27" r="6" />
-              <circle cx="36" cy="40" r="6" />
-              <circle cx="36" cy="53" r="6" />
-              <path d="M22 32h8" />
-              <path d="M30 14v39" />
-              <path d="M30 14h6" />
-              <path d="M30 27h6" />
-              <path d="M30 40h6" />
-              <path d="M30 53h6" />
-            </svg>
+            <div className="brand-badge">
+              <svg viewBox="0 0 64 64" aria-hidden="true" className="brand-mark">
+                <line x1="20" y1="32" x2="30" y2="32" />
+                <line x1="30" y1="12" x2="30" y2="52" />
+                <line x1="30" y1="12" x2="38" y2="12" />
+                <line x1="30" y1="25.33" x2="38" y2="25.33" />
+                <line x1="30" y1="38.67" x2="38" y2="38.67" />
+                <line x1="30" y1="52" x2="38" y2="52" />
+                <circle cx="14" cy="32" r="6" />
+                <circle cx="44" cy="12" r="5.5" />
+                <circle cx="44" cy="25.33" r="5.5" />
+                <circle cx="44" cy="38.67" r="5.5" />
+                <circle cx="44" cy="52" r="5.5" />
+              </svg>
+            </div>
           </div>
-        </div>
 
         <div className="rail-icons">
           {services.map((service) => (
