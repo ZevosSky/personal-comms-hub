@@ -8,6 +8,7 @@ import {
   ipcMain,
   nativeImage,
   Notification,
+  session,
   shell
 } from "electron";
 import {
@@ -33,6 +34,54 @@ const appIcon = nativeImage.createFromDataURL(
     "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='18' fill='#0f172a'/><g fill='none' stroke='#e0f2fe' stroke-width='4.5' stroke-linecap='round' stroke-linejoin='round'><line x1='20' y1='32' x2='30' y2='32'/><line x1='30' y1='12' x2='30' y2='52'/><line x1='30' y1='12' x2='38' y2='12'/><line x1='30' y1='25.33' x2='38' y2='25.33'/><line x1='30' y1='38.67' x2='38' y2='38.67'/><line x1='30' y1='52' x2='38' y2='52'/></g><circle cx='14' cy='32' r='6' fill='#e0f2fe'/><circle cx='44' cy='12' r='5.5' fill='#e0f2fe'/><circle cx='44' cy='25.33' r='5.5' fill='#e0f2fe'/><circle cx='44' cy='38.67' r='5.5' fill='#e0f2fe'/><circle cx='44' cy='52' r='5.5' fill='#e0f2fe'/></svg>"
   )}`
 );
+const allowedPermissions = new Set([
+  "notifications",
+  "fullscreen",
+  "media",
+  "clipboard-sanitized-write"
+]);
+const configuredSessionPartitions = new Set();
+
+const isSafeHttpUrl = (value) => {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" || url.protocol === "http:";
+  } catch {
+    return false;
+  }
+};
+
+const configureSessionPermissions = (targetSession) => {
+  if (!targetSession) {
+    return;
+  }
+
+  const key = targetSession === session.defaultSession ? "default" : targetSession.getStoragePath?.() || Math.random().toString(36);
+  if (configuredSessionPartitions.has(key)) {
+    return;
+  }
+
+  targetSession.setPermissionCheckHandler((_webContents, permission, requestingOrigin) => {
+    return allowedPermissions.has(permission) && isSafeHttpUrl(requestingOrigin);
+  });
+
+  targetSession.setPermissionRequestHandler(
+    (_webContents, permission, callback, details) => {
+      callback(allowedPermissions.has(permission) && isSafeHttpUrl(details.requestingUrl));
+    }
+  );
+
+  configuredSessionPartitions.add(key);
+};
+
+const configureKnownSessions = () => {
+  configureSessionPermissions(session.defaultSession);
+  for (const service of getAppState().services) {
+    if (service.sessionPartition) {
+      configureSessionPermissions(session.fromPartition(service.sessionPartition));
+    }
+  }
+};
 
 const broadcastState = (state) => {
   if (!mainWindow || mainWindow.isDestroyed()) {
@@ -79,6 +128,8 @@ const createWindow = async () => {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
+      webSecurity: true,
+      allowRunningInsecureContent: false,
       webviewTag: true,
       additionalArguments: [`--guest-preload=${guestPreloadPath}`]
     }
@@ -112,9 +163,40 @@ app.on("web-contents-created", (_event, contents) => {
     return;
   }
 
+  contents.on("will-navigate", (event, navigationUrl) => {
+    if (!isSafeHttpUrl(navigationUrl)) {
+      event.preventDefault();
+      shell.openExternal(navigationUrl);
+    }
+  });
+
   contents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
     return { action: "deny" };
+  });
+});
+
+app.on("web-contents-created", (_event, contents) => {
+  if (contents.getType() !== "window") {
+    return;
+  }
+
+  contents.on("will-attach-webview", (event, webPreferences, params) => {
+    if (!isSafeHttpUrl(params.src)) {
+      event.preventDefault();
+      return;
+    }
+
+    delete webPreferences.preloadURL;
+    webPreferences.preload = guestPreloadPath;
+    webPreferences.nodeIntegration = false;
+    webPreferences.nodeIntegrationInSubFrames = false;
+    webPreferences.contextIsolation = true;
+    webPreferences.sandbox = false;
+    webPreferences.webSecurity = true;
+    webPreferences.allowRunningInsecureContent = false;
+    webPreferences.enableBlinkFeatures = "";
+    webPreferences.disableBlinkFeatures = "";
   });
 });
 
@@ -122,6 +204,7 @@ ipcMain.handle("app-state:get", () => getAppState());
 
 ipcMain.handle("services:save", (_event, service) => {
   const state = upsertService(service);
+  configureKnownSessions();
   broadcastState(state);
   return state;
 });
@@ -235,6 +318,7 @@ ipcMain.handle("notifications:mark-seen", (_event, serviceId) => {
 ipcMain.handle("paths:get-guest-preload", () => guestPreloadPath.replace(/\\/g, "/"));
 
 app.whenReady().then(() => {
+  configureKnownSessions();
   createWindow().catch((error) => {
     console.error("Failed to create main window.", error);
     app.quit();

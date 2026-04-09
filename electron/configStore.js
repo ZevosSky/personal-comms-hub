@@ -20,6 +20,9 @@ const builtinIcons = {
   messenger: svgToDataUrl(
     "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><defs><linearGradient id='g' x1='0' x2='1' y1='0' y2='1'><stop offset='0%' stop-color='#00b2ff'/><stop offset='100%' stop-color='#006aff'/></linearGradient></defs><rect width='64' height='64' rx='18' fill='url(#g)'/><path d='M32 15C21.5 15 13 22.7 13 32.3c0 5.5 2.8 10.4 7.1 13.6v6.8l6.6-3.7c1.7.5 3.5.7 5.3.7 10.5 0 19-7.7 19-17.3S42.5 15 32 15zm2.1 22.9-5.2-5.5-10.2 5.5L30 25.8l5.1 5.5 10.3-5.5z' fill='#fff'/></svg>"
   ),
+  slack: svgToDataUrl(
+    "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='18' fill='#ffffff'/><path d='M26 13a5 5 0 1 1 10 0v8H26a4 4 0 0 1 0-8z' fill='#36c5f0'/><path d='M26 26v12a5 5 0 1 1-10 0V26h10z' fill='#2eb67d'/><path d='M13 38a5 5 0 1 1 0-10h8v10a4 4 0 0 1-8 0z' fill='#2eb67d'/><path d='M26 38a5 5 0 1 1 10 0v13a5 5 0 1 1-10 0V38z' fill='#ecb22e'/><path d='M38 51a5 5 0 1 1-10 0v-8h10a4 4 0 0 1 0 8z' fill='#ecb22e'/><path d='M38 38V26a5 5 0 1 1 10 0v12H38z' fill='#e01e5a'/><path d='M51 26a5 5 0 1 1 0 10h-8V26a4 4 0 0 1 8 0z' fill='#e01e5a'/><path d='M38 26a5 5 0 1 1-10 0V13a5 5 0 1 1 10 0v13z' fill='#36c5f0'/></svg>"
+  ),
   teams: svgToDataUrl(
     "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='18' fill='#4f52b2'/><rect x='14' y='19' width='22' height='26' rx='5' fill='#7b83eb'/><circle cx='45' cy='24' r='7' fill='#8b92f7'/><path d='M24 27h10v4h-3v11h-4V31h-3z' fill='#fff'/><path d='M41 32h9a4 4 0 0 1 4 4v8a4 4 0 0 1-4 4h-9z' fill='#6369d1'/></svg>"
   ),
@@ -78,6 +81,22 @@ export const builtInServices = [
     }
   },
   {
+    id: "slack",
+    name: "Slack",
+    url: "https://app.slack.com/client",
+    iconSource: builtinIcons.slack,
+    iconKey: "slack",
+    isBuiltIn: true,
+    isEnabled: true,
+    sessionPartition: "persist:service-slack",
+    supportsBadgeDetection: true,
+    notificationSettings: {
+      desktopEnabled: true,
+      badgeEnabled: true,
+      captureWebNotifications: true
+    }
+  },
+  {
     id: "teams",
     name: "Teams",
     url: "https://teams.microsoft.com/v2/",
@@ -100,6 +119,7 @@ export const iconLibrary = [
   { key: "gmail", label: "Gmail", iconSource: builtinIcons.gmail },
   { key: "discord", label: "Discord", iconSource: builtinIcons.discord },
   { key: "messenger", label: "Messenger", iconSource: builtinIcons.messenger },
+  { key: "slack", label: "Slack", iconSource: builtinIcons.slack },
   { key: "teams", label: "Teams", iconSource: builtinIcons.teams },
   { key: "globe", label: "Generic Web App", iconSource: builtinIcons.globe }
 ];

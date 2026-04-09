@@ -101,8 +101,8 @@ input {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 16px;
-  padding: 20px 14px;
+  gap: 10px;
+  padding: 16px 14px;
   min-height: 0;
   overflow: hidden;
   border-right: 1px solid rgba(148, 163, 184, 0.1);
@@ -113,7 +113,7 @@ input {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding-bottom: 8px;
+  padding-bottom: 4px;
 }
 
 .brand-badge {
@@ -176,7 +176,7 @@ input {
 .rail-icons {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 8px;
   align-items: center;
   width: 100%;
   min-height: 0;
@@ -185,7 +185,7 @@ input {
 }
 
 .rail-icons .rail-add-button {
-  margin-top: 4px;
+  margin-top: 2px;
   flex: 0 0 auto;
 }
 
@@ -209,7 +209,7 @@ input {
   margin-top: auto;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 6px;
   width: 100%;
   align-items: center;
 }
