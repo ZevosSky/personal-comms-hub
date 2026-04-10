@@ -54,8 +54,11 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
+      "createStartMenuShortcut": true,
       "createDesktopShortcut": "always",
-      "shortcutName": "Comms Hub"
+      "uninstallDisplayName": "Comms Hub",
+      "shortcutName": "Comms Hub",
+      "runAfterFinish": false
     }
   },
   "dependencies": {
@@ -67,8 +70,8 @@
   "devDependencies": {
     "@vitejs/plugin-react": "^5.0.0",
     "concurrently": "^9.1.2",
-    "electron": "^41.2.0",
-    "electron-builder": "^26.8.1",
+    "electron": "41.2.0",
+    "electron-builder": "26.8.1",
     "vite": "^6.3.5",
     "wait-on": "^8.0.3"
   }

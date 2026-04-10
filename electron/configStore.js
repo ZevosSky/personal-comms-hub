@@ -67,7 +67,7 @@ export const builtInServices = [
   {
     id: "messenger",
     name: "Messenger",
-    url: "https://www.messenger.com/",
+    url: "https://www.facebook.com/messages/",
     iconSource: builtinIcons.messenger,
     iconKey: "messenger",
     isBuiltIn: true,
@@ -124,6 +124,25 @@ export const iconLibrary = [
   { key: "globe", label: "Generic Web App", iconSource: builtinIcons.globe }
 ];
 
+const migrateBuiltInOverrides = (service, builtin) => {
+  if (!builtin) {
+    return service;
+  }
+
+  if (
+    service.id === "messenger" &&
+    (service.url === "https://www.messenger.com/" ||
+      service.url === "https://messenger.com/")
+  ) {
+    return {
+      ...service,
+      url: builtin.url
+    };
+  }
+
+  return service;
+};
+
 const schema = {
   services: {
     type: "array",
@@ -162,12 +181,14 @@ const mergeBuiltIns = (storedServices) => {
   return [
     ...storedServices.map((service) => {
       const builtin = builtInServices.find((item) => item.id === service.id);
-      return builtin
+      const merged = builtin
         ? {
             ...builtin,
             ...service
           }
         : service;
+
+      return migrateBuiltInOverrides(merged, builtin);
     }),
     ...builtInServices
       .filter((builtin) => !byId.has(builtin.id))

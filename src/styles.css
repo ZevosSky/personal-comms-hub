@@ -403,8 +403,13 @@ input {
 
 .service-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 10px;
   margin-top: 18px;
+}
+
+.service-remove-button {
+  margin-left: auto;
 }
 
 .icon-text-button,

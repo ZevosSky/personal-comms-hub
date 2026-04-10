@@ -313,6 +313,21 @@ function App() {
     setStatusMessage("Removed app.");
   };
 
+  const handleRemoveService = async (serviceId) => {
+    if (!serviceId) {
+      return;
+    }
+
+    const target = appState.services.find((service) => service.id === serviceId);
+    if (!target || target.isBuiltIn) {
+      return;
+    }
+
+    const nextState = await window.commsApp.removeService(serviceId);
+    setAppState(nextState);
+    setStatusMessage(`Removed ${target.name}.`);
+  };
+
   const moveService = async (serviceId, direction) => {
     const ids = appState.services.map((service) => service.id);
     const currentIndex = ids.indexOf(serviceId);
@@ -575,6 +590,15 @@ function App() {
                   >
                     Move down
                   </button>
+                  {!appState.services.find((service) => service.id === activeService.id)?.isBuiltIn ? (
+                    <button
+                      className="danger-button service-remove-button"
+                      onClick={() => handleRemoveService(activeService.id)}
+                      type="button"
+                    >
+                      Remove app
+                    </button>
+                  ) : null}
                 </div>
               </div>
 

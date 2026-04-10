@@ -41,11 +41,41 @@ const allowedPermissions = new Set([
   "clipboard-sanitized-write"
 ]);
 const configuredSessionPartitions = new Set();
+const embeddedAuthHosts = new Set([
+  "accounts.google.com",
+  "app.slack.com",
+  "slack.com",
+  "login.microsoftonline.com",
+  "login.live.com",
+  "discord.com",
+  "www.messenger.com",
+  "messenger.com",
+  "teams.microsoft.com"
+]);
 
 const isSafeHttpUrl = (value) => {
   try {
     const url = new URL(value);
     return url.protocol === "https:" || url.protocol === "http:";
+  } catch {
+    return false;
+  }
+};
+
+const shouldOpenInsideGuest = (currentUrl, targetUrl) => {
+  if (!isSafeHttpUrl(targetUrl)) {
+    return false;
+  }
+
+  try {
+    const current = currentUrl ? new URL(currentUrl) : null;
+    const target = new URL(targetUrl);
+
+    if (current && current.origin === target.origin) {
+      return true;
+    }
+
+    return embeddedAuthHosts.has(target.hostname);
   } catch {
     return false;
   }
@@ -81,6 +111,30 @@ const configureKnownSessions = () => {
       configureSessionPermissions(session.fromPartition(service.sessionPartition));
     }
   }
+};
+
+const getKnownServiceSessions = () =>
+  getAppState().services
+    .map((service) => service.sessionPartition)
+    .filter(Boolean)
+    .map((partition) => session.fromPartition(partition));
+
+const flushKnownSessions = async () => {
+  const uniqueSessions = new Map();
+
+  for (const targetSession of getKnownServiceSessions()) {
+    const key = targetSession.getStoragePath?.() || Math.random().toString(36);
+    if (!uniqueSessions.has(key)) {
+      uniqueSessions.set(key, targetSession);
+    }
+  }
+
+  await Promise.allSettled(
+    [...uniqueSessions.values()].flatMap((targetSession) => [
+      targetSession.cookies.flushStore(),
+      targetSession.flushStorageData()
+    ])
+  );
 };
 
 const broadcastState = (state) => {
@@ -144,6 +198,9 @@ const createWindow = async () => {
   mainWindow.on("focus", () => {
     markActiveServiceSeen();
   });
+  mainWindow.on("close", () => {
+    flushKnownSessions().catch(() => {});
+  });
 
   if (isDev) {
     try {
@@ -171,6 +228,13 @@ app.on("web-contents-created", (_event, contents) => {
   });
 
   contents.setWindowOpenHandler(({ url }) => {
+    if (shouldOpenInsideGuest(contents.getURL(), url)) {
+      contents.loadURL(url).catch(() => {
+        shell.openExternal(url);
+      });
+      return { action: "deny" };
+    }
+
     shell.openExternal(url);
     return { action: "deny" };
   });
@@ -319,10 +383,22 @@ ipcMain.handle("paths:get-guest-preload", () => guestPreloadPath.replace(/\\/g, 
 
 app.whenReady().then(() => {
   configureKnownSessions();
+  setInterval(() => {
+    flushKnownSessions().catch(() => {});
+  }, 30000);
   createWindow().catch((error) => {
     console.error("Failed to create main window.", error);
     app.quit();
   });
+});
+
+app.on("before-quit", (event) => {
+  event.preventDefault();
+  flushKnownSessions()
+    .catch(() => {})
+    .finally(() => {
+      app.exit();
+    });
 });
 
 app.on("window-all-closed", () => {
