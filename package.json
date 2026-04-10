@@ -10,6 +10,7 @@
   "scripts": {
     "dev": "concurrently -k \"vite\" \"wait-on tcp:5173 && electron . --dev\"",
     "build": "vite build --base ./",
+    "smoke": "npm run build && node scripts/smoke-check.mjs",
     "start": "electron .",
     "dist": "npm run build && electron-builder --publish never",
     "dist:win": "npm run build && electron-builder --win nsis --x64 --publish never",

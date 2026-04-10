@@ -91,8 +91,9 @@ This repo includes a GitHub Actions workflow at [.github/workflows/build-install
 
 - builds the Windows installer on `windows-latest`
 - builds the Linux AppImage on `ubuntu-latest`
+- runs smoke checks on both Windows and Linux first
 - uploads both outputs as workflow artifacts
-- does not publish releases automatically
+- publishes a GitHub Release automatically only for version tags like `v0.1.0`
 
 It runs on:
 
@@ -108,6 +109,36 @@ If you want a manual build from the GitHub UI:
 4. Click `Run workflow`
 
 After the workflow finishes, download the generated installers from the workflow artifacts section.
+
+## Version Tags And Releases
+
+GitHub Releases in this repo are driven by Git tags.
+
+Recommended flow:
+
+1. Update the version in `package.json`
+2. Commit the change
+3. Create a tag that starts with `v`
+4. Push the branch and the tag
+
+Example:
+
+```bash
+git add package.json
+git commit -m "Bump version to 0.1.0"
+git tag v0.1.0
+git push origin main
+git push origin v0.1.0
+```
+
+What happens next:
+
+- the GitHub Actions workflow runs smoke checks
+- it builds the Windows and Linux installers
+- it creates a GitHub Release for that tag
+- it uploads the generated installer files to the release
+
+If you do not push a `v*` tag, the workflow only produces build artifacts in Actions and does not create a release.
 
 ## Installer Notes
 
