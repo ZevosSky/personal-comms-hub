@@ -159,3 +159,12 @@ That includes:
 - notification history
 - uploaded custom icons
 - persistent Chromium session data for embedded services
+
+## Things I might add in the future
+
+------
+
+- animations
+- better setting support for things like dissabling keeping specific tabs open
+- slightly better memeory optimizations / leak checks
+- agregated message center (don't hold your breath on this one)
