@@ -11,6 +11,8 @@ contextBridge.exposeInMainWorld("commsApp", {
   setSidebarCollapsed: (collapsed) => ipcRenderer.invoke("ui:set-sidebar-collapsed", collapsed),
   uploadIcon: () => ipcRenderer.invoke("icons:upload"),
   openExternal: (url) => ipcRenderer.invoke("shell:open-external", url),
+  checkForUpdates: () => ipcRenderer.invoke("updates:check"),
+  openUpdateDownload: () => ipcRenderer.invoke("updates:open"),
   notifyServiceEvent: (payload) => ipcRenderer.invoke("notifications:service-event", payload),
   markNotificationsSeen: (serviceId) => ipcRenderer.invoke("notifications:mark-seen", serviceId),
   clearNotificationHistory: () => ipcRenderer.invoke("notifications:clear-history"),

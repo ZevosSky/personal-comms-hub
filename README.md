@@ -60,7 +60,7 @@ npm run dist:win
 The installer is generated at:
 
 ```bash
-release/Comms Hub Setup 0.1.0.exe
+release/Comms Hub Setup 1.1.0.exe
 ```
 
 ### Linux AppImage
@@ -93,7 +93,7 @@ This repo includes a GitHub Actions workflow at [.github/workflows/build-install
 - builds the Linux AppImage on `ubuntu-latest`
 - runs smoke checks on both Windows and Linux first
 - uploads both outputs as workflow artifacts
-- publishes a GitHub Release automatically only for version tags like `v0.1.0`
+- publishes a GitHub Release automatically only for version tags like `v1.1.0`
 
 It runs on:
 
@@ -125,10 +125,10 @@ Example:
 
 ```bash
 git add package.json
-git commit -m "Bump version to 0.1.0"
-git tag v0.1.0
+git commit -m "Bump version to 1.1.0"
+git tag v1.1.0
 git push origin main
-git push origin v0.1.0
+git push origin v1.1.0
 ```
 
 What happens next:

@@ -1,6 +1,7 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
+import fs from "node:fs";
 import {
   app,
   BrowserWindow,
@@ -25,10 +26,15 @@ import {
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const packageJson = JSON.parse(
+  fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf8")
+);
 
 let mainWindow = null;
 const isDev = process.argv.includes("--dev");
 const guestPreloadPath = path.join(__dirname, "guestPreload.js");
+const updatesRepository =
+  packageJson.repository?.url?.match(/github\.com\/([^/]+\/[^/.]+)(?:\.git)?$/)?.[1] ?? null;
 const appIcon = nativeImage.createFromDataURL(
   `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(
     "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='18' fill='#0f172a'/><g fill='none' stroke='#e0f2fe' stroke-width='4.5' stroke-linecap='round' stroke-linejoin='round'><line x1='20' y1='32' x2='30' y2='32'/><line x1='30' y1='12' x2='30' y2='52'/><line x1='30' y1='12' x2='38' y2='12'/><line x1='30' y1='25.33' x2='38' y2='25.33'/><line x1='30' y1='38.67' x2='38' y2='38.67'/><line x1='30' y1='52' x2='38' y2='52'/></g><circle cx='14' cy='32' r='6' fill='#e0f2fe'/><circle cx='44' cy='12' r='5.5' fill='#e0f2fe'/><circle cx='44' cy='25.33' r='5.5' fill='#e0f2fe'/><circle cx='44' cy='38.67' r='5.5' fill='#e0f2fe'/><circle cx='44' cy='52' r='5.5' fill='#e0f2fe'/></svg>"
@@ -60,6 +66,87 @@ const isSafeHttpUrl = (value) => {
   } catch {
     return false;
   }
+};
+
+const normalizeVersion = (version) => String(version || "").replace(/^v/i, "").split("-")[0];
+
+const compareVersions = (left, right) => {
+  const leftParts = normalizeVersion(left)
+    .split(".")
+    .map((part) => Number.parseInt(part, 10) || 0);
+  const rightParts = normalizeVersion(right)
+    .split(".")
+    .map((part) => Number.parseInt(part, 10) || 0);
+  const max = Math.max(leftParts.length, rightParts.length);
+
+  for (let index = 0; index < max; index += 1) {
+    const a = leftParts[index] ?? 0;
+    const b = rightParts[index] ?? 0;
+    if (a > b) {
+      return 1;
+    }
+    if (a < b) {
+      return -1;
+    }
+  }
+
+  return 0;
+};
+
+const getPlatformAsset = (assets = []) => {
+  if (process.platform === "win32") {
+    return assets.find(
+      (asset) =>
+        asset.name.endsWith(".exe") &&
+        !asset.name.endsWith(".blockmap") &&
+        !asset.name.toLowerCase().includes("uninstaller")
+    );
+  }
+
+  if (process.platform === "linux") {
+    return assets.find((asset) => asset.name.endsWith(".AppImage"));
+  }
+
+  return null;
+};
+
+const checkForUpdates = async () => {
+  const currentVersion = app.getVersion();
+
+  if (!updatesRepository) {
+    return {
+      status: "unconfigured",
+      currentVersion,
+      platform: process.platform
+    };
+  }
+
+  const response = await fetch(`https://api.github.com/repos/${updatesRepository}/releases/latest`, {
+    headers: {
+      Accept: "application/vnd.github+json",
+      "User-Agent": "Comms-Hub-Updater"
+    }
+  });
+
+  if (!response.ok) {
+    throw new Error(`GitHub release check failed with status ${response.status}`);
+  }
+
+  const release = await response.json();
+  const latestVersion = normalizeVersion(release.tag_name || release.name || currentVersion);
+  const asset = getPlatformAsset(release.assets);
+
+  return {
+    status: compareVersions(latestVersion, currentVersion) > 0 ? "update-available" : "up-to-date",
+    currentVersion,
+    latestVersion,
+    platform: process.platform,
+    releaseName: release.name || release.tag_name,
+    releaseUrl: release.html_url,
+    publishedAt: release.published_at,
+    assetName: asset?.name ?? null,
+    assetUrl: asset?.browser_download_url ?? null
+  };
 };
 
 const shouldOpenInsideGuest = (currentUrl, targetUrl) => {
@@ -327,6 +414,31 @@ ipcMain.handle("icons:upload", async () => {
 });
 
 ipcMain.handle("shell:open-external", (_event, url) => shell.openExternal(url));
+
+ipcMain.handle("updates:check", async () => {
+  try {
+    return await checkForUpdates();
+  } catch (error) {
+    return {
+      status: "error",
+      currentVersion: app.getVersion(),
+      platform: process.platform,
+      error: error instanceof Error ? error.message : "Unknown update error"
+    };
+  }
+});
+
+ipcMain.handle("updates:open", async () => {
+  const updateInfo = await checkForUpdates();
+  const targetUrl = updateInfo.assetUrl || updateInfo.releaseUrl;
+
+  if (!targetUrl) {
+    return false;
+  }
+
+  await shell.openExternal(targetUrl);
+  return true;
+});
 
 const recordNotificationEvent = (payload) => {
   const entry = {

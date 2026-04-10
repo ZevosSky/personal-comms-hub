@@ -47,6 +47,18 @@ const getWorkspaceLabel = (service) => {
   return `${getInitials(service.name)} workspace`;
 };
 
+const getMemoryStateLabel = (service, memorySaverEnabled) => {
+  if (!service) {
+    return "Idle";
+  }
+
+  if (service.keepAliveInBackground) {
+    return memorySaverEnabled ? "Keep alive" : "Pinned warm";
+  }
+
+  return memorySaverEnabled ? "Sleeps idle" : "Warm tabs";
+};
+
 const ServiceFormModal = ({
   form,
   onChange,
@@ -145,6 +157,9 @@ const EmptyState = ({ title = "Choose a service from the left rail", body }) => 
 function App() {
   const [appState, setAppState] = useState(null);
   const [modalForm, setModalForm] = useState(null);
+  const [updateInfo, setUpdateInfo] = useState(null);
+  const [isCheckingUpdates, setIsCheckingUpdates] = useState(false);
+  const [didAutoCheckUpdates, setDidAutoCheckUpdates] = useState(false);
   const [statusMessage, setStatusMessage] = useState("Loading services...");
   const [badgeCounts, setBadgeCounts] = useState({});
   const [loadedServiceIds, setLoadedServiceIds] = useState([]);
@@ -175,6 +190,23 @@ function App() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!appState || didAutoCheckUpdates) {
+      return;
+    }
+
+    setIsCheckingUpdates(true);
+    window.commsApp
+      .checkForUpdates()
+      .then((result) => {
+        startTransition(() => setUpdateInfo(result));
+      })
+      .finally(() => {
+        setDidAutoCheckUpdates(true);
+        setIsCheckingUpdates(false);
+      });
+  }, [appState, didAutoCheckUpdates]);
+
   const services = useMemo(
     () => appState?.services?.filter((service) => service.isEnabled) ?? [],
     [appState]
@@ -202,17 +234,29 @@ function App() {
 
     return counts;
   }, [appState?.notificationHistory, appState?.ui?.notificationLastSeenByService]);
+  const keepAliveServiceIds = useMemo(
+    () => services.filter((service) => service.keepAliveInBackground).map((service) => service.id),
+    [services]
+  );
   const renderedServices = useMemo(() => {
     if (!activeService || !guestPreloadPath) {
       return [];
     }
 
     if (appState?.ui?.memorySaverEnabled) {
-      return [activeService];
+      const wantedIds = new Set([activeService.id, ...keepAliveServiceIds]);
+      return services.filter((service) => wantedIds.has(service.id));
     }
 
     return services.filter((service) => loadedServiceIds.includes(service.id));
-  }, [activeService, appState?.ui?.memorySaverEnabled, guestPreloadPath, loadedServiceIds, services]);
+  }, [
+    activeService,
+    appState?.ui?.memorySaverEnabled,
+    guestPreloadPath,
+    keepAliveServiceIds,
+    loadedServiceIds,
+    services
+  ]);
 
   useEffect(() => {
     if (!activeServiceId) {
@@ -221,6 +265,18 @@ function App() {
 
     setLoadedServiceIds((current) => (current.includes(activeServiceId) ? current : [...current, activeServiceId]));
   }, [activeServiceId]);
+
+  useEffect(() => {
+    if (!keepAliveServiceIds.length) {
+      return;
+    }
+
+    setLoadedServiceIds((current) => {
+      const next = new Set(current);
+      keepAliveServiceIds.forEach((id) => next.add(id));
+      return [...next];
+    });
+  }, [keepAliveServiceIds]);
 
   useEffect(() => {
     renderedServices.forEach((service) => {
@@ -392,6 +448,23 @@ function App() {
     setAppState(nextState);
   };
 
+  const toggleKeepAlive = async () => {
+    if (!activeService) {
+      return;
+    }
+
+    const nextState = await window.commsApp.saveService({
+      ...activeService,
+      keepAliveInBackground: !activeService.keepAliveInBackground
+    });
+    setAppState(nextState);
+    if (!activeService.keepAliveInBackground) {
+      setLoadedServiceIds((current) =>
+        current.includes(activeService.id) ? current : [...current, activeService.id]
+      );
+    }
+  };
+
   const handleCapturedNotification = async (service, payload) => {
     if (!service.notificationSettings?.captureWebNotifications) {
       return;
@@ -447,6 +520,27 @@ function App() {
     });
 
     setStatusMessage(`Sent a test alert for ${activeService.name}.`);
+  };
+
+  const checkForUpdates = async () => {
+    setIsCheckingUpdates(true);
+    const result = await window.commsApp.checkForUpdates();
+    setUpdateInfo(result);
+    setIsCheckingUpdates(false);
+    if (result.status === "update-available") {
+      setStatusMessage(`Update available: ${result.latestVersion}.`);
+    } else if (result.status === "up-to-date") {
+      setStatusMessage(`Comms Hub ${result.currentVersion} is up to date.`);
+    } else if (result.status === "error") {
+      setStatusMessage("Unable to check for updates right now.");
+    }
+  };
+
+  const openUpdateDownload = async () => {
+    const opened = await window.commsApp.openUpdateDownload();
+    if (opened) {
+      setStatusMessage("Opened the latest release download.");
+    }
   };
 
   if (!appState) {
@@ -567,7 +661,7 @@ function App() {
                   </div>
                   <div>
                     <span className="meta-label">Memory</span>
-                    <strong>{appState.ui.memorySaverEnabled ? "Saver on" : "Warm tabs"}</strong>
+                    <strong>{getMemoryStateLabel(activeService, appState.ui.memorySaverEnabled)}</strong>
                   </div>
                 </div>
 
@@ -600,6 +694,22 @@ function App() {
                     </button>
                   ) : null}
                 </div>
+              </div>
+
+              <div className="sidebar-section">
+                <p className="eyebrow">Performance</p>
+                <label className="setting-row">
+                  <span>Keep alive in background</span>
+                  <input
+                    type="checkbox"
+                    checked={activeService.keepAliveInBackground ?? false}
+                    onChange={toggleKeepAlive}
+                  />
+                </label>
+                <p className="setting-note">
+                  Keeps this app mounted even when memory saver is on, so it can stay signed in and
+                  continue background activity at the cost of more RAM.
+                </p>
               </div>
 
               <div className="sidebar-section">
@@ -649,7 +759,13 @@ function App() {
                       <img src={service.iconSource} alt="" className="mini-service-icon" />
                       <span className="mini-service-copy">
                         <strong>{service.name}</strong>
-                        <small>{service.id === activeServiceId ? "Open now" : "Switch view"}</small>
+                        <small>
+                          {service.keepAliveInBackground
+                            ? "Background keep-alive"
+                            : service.id === activeServiceId
+                              ? "Open now"
+                              : "Switch view"}
+                        </small>
                       </span>
                       {notificationCounts[service.id] ? (
                         <span className="mini-badge">{notificationCounts[service.id]}</span>
@@ -664,6 +780,40 @@ function App() {
           )}
 
           <div className="sidebar-footer">
+            <div className="sidebar-section">
+              <p className="eyebrow">Updates</p>
+              <div className="update-summary">
+                <strong>Installed</strong>
+                <span>{updateInfo?.currentVersion ?? "0.0.0"}</span>
+              </div>
+              <div className="update-summary">
+                <strong>Status</strong>
+                <span>
+                  {isCheckingUpdates
+                    ? "Checking..."
+                    : updateInfo?.status === "update-available"
+                      ? `Update ${updateInfo.latestVersion} available`
+                      : updateInfo?.status === "up-to-date"
+                        ? "Up to date"
+                        : updateInfo?.status === "error"
+                          ? "Check failed"
+                          : "Not configured"}
+                </span>
+              </div>
+              {updateInfo?.status === "error" ? (
+                <p className="setting-note">{updateInfo.error}</p>
+              ) : null}
+              <div className="update-actions">
+                <button className="ghost-button" onClick={checkForUpdates} type="button">
+                  Check for updates
+                </button>
+                {updateInfo?.status === "update-available" ? (
+                  <button className="secondary-button" onClick={openUpdateDownload} type="button">
+                    {updateInfo.assetName ? "Download update" : "Open release"}
+                  </button>
+                ) : null}
+              </div>
+            </div>
             {activeService ? (
               <button className="secondary-button sidebar-test-button" onClick={sendTestNotification} type="button">
                 Send test alert
@@ -684,12 +834,12 @@ function App() {
                 onChange={toggleMemorySaver}
               />
               <span>Memory saver mode</span>
-            </label>
-            <p className="footer-note">
-              Memory saver keeps only the active service mounted. Turn it off if you want faster
-              switching and more background activity at the cost of RAM.
-            </p>
-          </div>
+              </label>
+              <p className="footer-note">
+                Memory saver unloads idle apps by default. Apps marked Keep alive in background stay
+                mounted for background activity while the rest sleep to save RAM.
+              </p>
+            </div>
         </aside>
       ) : null}
 

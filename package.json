@@ -1,10 +1,15 @@
 {
   "name": "comms-app",
-  "version": "0.1.0",
+  "version": "1.1.0",
   "private": true,
   "productName": "Comms Hub",
   "author": "Gary Yang",
   "description": "Desktop message aggregator for web-based communication apps.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ZevosSky/personal-comms-hub.git"
+  },
+  "homepage": "https://github.com/ZevosSky/personal-comms-hub",
   "main": "electron/main.js",
   "type": "module",
   "scripts": {

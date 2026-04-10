@@ -42,6 +42,7 @@ export const builtInServices = [
     isEnabled: true,
     sessionPartition: "persist:service-gmail",
     supportsBadgeDetection: true,
+    keepAliveInBackground: false,
     notificationSettings: {
       desktopEnabled: true,
       badgeEnabled: true,
@@ -58,6 +59,7 @@ export const builtInServices = [
     isEnabled: true,
     sessionPartition: "persist:service-discord",
     supportsBadgeDetection: true,
+    keepAliveInBackground: false,
     notificationSettings: {
       desktopEnabled: true,
       badgeEnabled: true,
@@ -74,6 +76,7 @@ export const builtInServices = [
     isEnabled: true,
     sessionPartition: "persist:service-messenger",
     supportsBadgeDetection: true,
+    keepAliveInBackground: false,
     notificationSettings: {
       desktopEnabled: true,
       badgeEnabled: true,
@@ -90,6 +93,7 @@ export const builtInServices = [
     isEnabled: true,
     sessionPartition: "persist:service-slack",
     supportsBadgeDetection: true,
+    keepAliveInBackground: false,
     notificationSettings: {
       desktopEnabled: true,
       badgeEnabled: true,
@@ -107,6 +111,7 @@ export const builtInServices = [
     sessionPartition: "persist:service-teams",
     supportsBadgeDetection: true,
     userAgent: modernChromeUserAgent,
+    keepAliveInBackground: false,
     notificationSettings: {
       desktopEnabled: true,
       badgeEnabled: true,
@@ -214,6 +219,8 @@ const normalizeService = (service, existing) => ({
   isEnabled: service.isEnabled ?? existing?.isEnabled ?? true,
   sessionPartition: existing?.sessionPartition ?? service.sessionPartition ?? `persist:service-${service.id}`,
   supportsBadgeDetection: service.supportsBadgeDetection ?? existing?.supportsBadgeDetection ?? true,
+  keepAliveInBackground:
+    service.keepAliveInBackground ?? existing?.keepAliveInBackground ?? false,
   userAgent: service.userAgent ?? existing?.userAgent ?? null,
   notificationSettings: normalizeNotificationSettings(
     service.notificationSettings ?? existing?.notificationSettings
