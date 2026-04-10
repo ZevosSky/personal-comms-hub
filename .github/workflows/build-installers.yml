@@ -18,14 +18,14 @@ jobs:
         include:
           - os: windows-latest
             label: Windows
-            build_command: npm run dist:win
+            package_command: npx electron-builder --win nsis --x64 --publish never
             artifact_glob: |
               release/*.exe
               release/*.blockmap
               release/latest.yml
           - os: ubuntu-latest
             label: Linux
-            build_command: npm run dist:linux
+            package_command: npx electron-builder --linux AppImage --x64 --publish never
             artifact_glob: |
               release/*.AppImage
               release/latest-linux.yml
@@ -43,8 +43,11 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Build installer
-        run: ${{ matrix.build_command }}
+      - name: Build renderer
+        run: npm run build
+
+      - name: Package installer
+        run: ${{ matrix.package_command }}
 
       - name: Upload installer artifacts
         uses: actions/upload-artifact@v4
@@ -52,4 +55,3 @@ jobs:
           name: comms-hub-${{ matrix.label }}
           path: ${{ matrix.artifact_glob }}
           if-no-files-found: error
-

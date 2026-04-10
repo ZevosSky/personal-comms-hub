@@ -92,6 +92,7 @@ This repo includes a GitHub Actions workflow at [.github/workflows/build-install
 - builds the Windows installer on `windows-latest`
 - builds the Linux AppImage on `ubuntu-latest`
 - uploads both outputs as workflow artifacts
+- does not publish releases automatically
 
 It runs on:
 
