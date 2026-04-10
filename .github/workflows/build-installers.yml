@@ -107,6 +107,17 @@ jobs:
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
+          name: Comms Hub ${{ github.ref_name }}
+          body: |
+            Download the installer for your system:
+
+            - Windows: `Comms Hub Setup <version>.exe`
+            - Linux: `Comms Hub-<version>.AppImage`
+
+            Other files:
+
+            - `*.blockmap` and `*.yml` are update metadata files
+            - `Source code` archives are the raw repository snapshot, not desktop installers
           files: |
             release-assets/*.exe
             release-assets/*.blockmap
