@@ -37,6 +37,189 @@ input {
   color: #d7e3f4;
 }
 
+.dock-shell {
+  height: 100%;
+  min-height: 0;
+  background: transparent;
+  opacity: 0.46;
+  transition: opacity 180ms ease, transform 180ms ease;
+}
+
+.bubble-shell {
+  height: 100%;
+  min-height: 0;
+  background: transparent;
+  opacity: 0.88;
+  transition: opacity 180ms ease, transform 180ms ease;
+}
+
+.dock-shell:hover,
+.dock-shell:focus-within,
+.bubble-shell:hover,
+.bubble-shell:focus-within {
+  opacity: 0.82;
+}
+
+.dock-mark {
+  width: 16px;
+  height: 16px;
+  overflow: visible;
+}
+
+.dock-mark circle {
+  fill: #dbeafe;
+}
+
+.dock-mark line {
+  fill: none;
+  stroke: #dbeafe;
+  stroke-width: 4.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.dock-body {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+
+.dock-shell.right-anchored .dock-body {
+  flex-direction: row-reverse;
+}
+
+.dock-rail {
+  width: 68px;
+  border: 1px solid rgba(148, 163, 184, 0.03);
+  background: rgba(8, 15, 28, 0.02);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 8px 6px 10px;
+  min-height: 0;
+  -webkit-app-region: drag;
+  backdrop-filter: blur(4px);
+}
+
+.dock-shell.left-anchored .dock-rail {
+  border-left: 0;
+  border-radius: 0 28px 28px 0;
+}
+
+.dock-shell.right-anchored .dock-rail {
+  border-right: 0;
+  border-radius: 28px 0 0 28px;
+}
+
+.dock-rail-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  align-items: center;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.18) transparent;
+}
+
+.dock-rail-footer {
+  margin-top: auto;
+  padding-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+}
+
+.dock-rail-button,
+.dock-add-button {
+  width: 48px;
+  height: 48px;
+  border-radius: 16px;
+  border: 1px solid transparent;
+  background: rgba(15, 23, 42, 0.14);
+  display: grid;
+  place-items: center;
+  padding: 0;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+
+.dock-rail-button.active {
+  background: linear-gradient(180deg, rgba(14, 165, 233, 0.08), rgba(37, 99, 235, 0.06));
+  border-color: rgba(125, 211, 252, 0.1);
+}
+
+.dock-add-button {
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.74), rgba(22, 163, 74, 0.68));
+  color: white;
+  font-size: 1.6rem;
+}
+
+.dock-footer-button {
+  width: 48px;
+  min-height: 30px;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.05);
+  background: rgba(15, 23, 42, 0.08);
+  color: rgba(220, 231, 248, 0.58);
+  font-size: 0.62rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 6px 4px;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+
+.dock-bubble {
+  display: none;
+}
+
+.dock-webview-wrap {
+  position: relative;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #f8fafc;
+}
+
+.dock-webview-solo {
+  width: 100%;
+  border-radius: 28px;
+  border: 1px solid rgba(148, 163, 184, 0.08);
+  background:
+    linear-gradient(180deg, rgba(10, 17, 30, 0.8), rgba(11, 19, 32, 0.74)),
+    radial-gradient(circle at top, rgba(14, 165, 233, 0.05), transparent 30%);
+  box-shadow: 0 14px 34px rgba(3, 7, 18, 0.24);
+  backdrop-filter: blur(18px);
+}
+
+.dock-rail-stack::-webkit-scrollbar {
+  width: 4px;
+}
+
+.dock-rail-stack::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.dock-rail-stack::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.18);
+  border-radius: 999px;
+}
+
+.dock-rail-stack::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.28);
+}
+
+.bubble-shell .dock-webview-solo {
+  border-radius: 28px;
+}
+
+.dock-overlay-state {
+  border-radius: inherit;
+}
+
 .app-shell {
   position: relative;
   display: grid;
@@ -59,6 +242,8 @@ input {
   height: env(titlebar-area-height, 40px);
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   padding: 0 140px 0 16px;
   -webkit-app-region: drag;
   z-index: 20;
@@ -75,6 +260,28 @@ input {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.titlebar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  -webkit-app-region: no-drag;
+}
+
+.titlebar-mode-button {
+  border: 1px solid rgba(125, 211, 252, 0.28);
+  border-radius: 999px;
+  background: rgba(14, 165, 233, 0.12);
+  color: #dff3ff;
+  padding: 7px 12px;
+  cursor: pointer;
+  transition: 160ms ease;
+}
+
+.titlebar-mode-button:hover {
+  background: rgba(14, 165, 233, 0.18);
+  border-color: rgba(125, 211, 252, 0.42);
 }
 
 .titlebar-mark {

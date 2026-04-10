@@ -154,6 +154,13 @@ const EmptyState = ({ title = "Choose a service from the left rail", body }) => 
   </div>
 );
 
+const rendererMode = (() => {
+  const mode = new URLSearchParams(window.location.search).get("mode");
+  return mode === "dock" || mode === "bubble" ? mode : "full";
+})();
+
+const rightAnchoredCorners = new Set(["top-right", "bottom-right"]);
+
 function App() {
   const [appState, setAppState] = useState(null);
   const [modalForm, setModalForm] = useState(null);
@@ -215,6 +222,11 @@ function App() {
     appState?.ui?.activeServiceId ?? services.find((service) => service.isEnabled)?.id ?? null;
   const activeService = services.find((service) => service.id === activeServiceId) ?? null;
   const activeIndex = services.findIndex((service) => service.id === activeServiceId);
+  const isDockMode = rendererMode === "dock";
+  const isBubbleMode = rendererMode === "bubble";
+  const dockCorner = appState?.ui?.dockCorner ?? "bottom-left";
+  const dockExpanded = appState?.ui?.dockExpanded ?? true;
+  const isRightAnchored = rightAnchoredCorners.has(dockCorner);
   const notificationCounts = useMemo(() => {
     const counts = {};
     const lastSeenByService = appState?.ui?.notificationLastSeenByService ?? {};
@@ -402,8 +414,11 @@ function App() {
 
   const selectService = async (serviceId) => {
     const nextState = await window.commsApp.setActiveService(serviceId);
-    setAppState(nextState);
-    setStatusMessage(`Switched to ${nextState.services.find((service) => service.id === serviceId)?.name ?? "service"}.`);
+    const finalState = isDockMode && !dockExpanded
+      ? await window.commsApp.setDockExpanded(true)
+      : nextState;
+    setAppState(finalState);
+    setStatusMessage(`Switched to ${finalState.services.find((service) => service.id === serviceId)?.name ?? "service"}.`);
   };
 
   const toggleNotifications = async () => {
@@ -423,6 +438,19 @@ function App() {
 
   const toggleSidebarCollapsed = async () => {
     const nextState = await window.commsApp.setSidebarCollapsed(!appState.ui.sidebarCollapsed);
+    setAppState(nextState);
+  };
+
+  const setWindowMode = async (mode) => {
+    const nextState = await window.commsApp.setWindowMode(mode);
+    setAppState(nextState);
+  };
+
+  const cycleDockCorner = async () => {
+    const corners = ["bottom-left", "bottom-right", "top-right", "top-left"];
+    const currentIndex = corners.indexOf(dockCorner);
+    const nextCorner = corners[(currentIndex + 1) % corners.length];
+    const nextState = await window.commsApp.setDockCorner(nextCorner);
     setAppState(nextState);
   };
 
@@ -547,6 +575,100 @@ function App() {
     return <div className="loading-shell">{statusMessage}</div>;
   }
 
+  if (isDockMode) {
+    return (
+      <div className={`dock-shell ${isRightAnchored ? "right-anchored" : "left-anchored"} ${dockCorner}`}>
+        <div className="dock-body">
+          <aside className="dock-rail">
+            <div className="dock-rail-stack">
+              {services.map((service) => (
+                <button
+                  key={service.id}
+                  className={`dock-rail-button ${service.id === activeServiceId ? "active" : ""}`}
+                  onClick={async () => {
+                    if (service.id === activeServiceId && dockExpanded) {
+                      const nextState = await window.commsApp.setDockExpanded(false);
+                      setAppState(nextState);
+                      return;
+                    }
+
+                    const nextState = await window.commsApp.setActiveService(service.id);
+                    const finalState = await window.commsApp.setDockExpanded(true);
+                    setAppState(finalState?.ui?.activeServiceId ? finalState : nextState);
+                  }}
+                  title={service.name}
+                  type="button"
+                >
+                  <span className="service-icon-wrap">
+                    <img src={service.iconSource} alt={service.name} className="service-icon" />
+                    {notificationCounts[service.id] ? (
+                      <span className="badge-pill">{notificationCounts[service.id]}</span>
+                    ) : null}
+                  </span>
+                </button>
+              ))}
+            </div>
+            <div className="dock-rail-footer">
+              <button className="dock-footer-button" onClick={cycleDockCorner} title="Move dock corner" type="button">
+                Corner
+              </button>
+              <button className="dock-footer-button" onClick={() => setWindowMode("full")} title="Open full app" type="button">
+                Full
+              </button>
+            </div>
+          </aside>
+        </div>
+
+        {modalForm ? (
+          <ServiceFormModal
+            form={modalForm}
+            onChange={updateForm}
+            onClose={() => setModalForm(null)}
+            onSave={handleSave}
+            onUploadIcon={handleUploadIcon}
+            iconLibrary={appState.iconLibrary}
+            canDelete={!appState.services.find((service) => service.id === modalForm.id)?.isBuiltIn}
+            onDelete={handleDelete}
+          />
+        ) : null}
+      </div>
+    );
+  }
+
+  if (isBubbleMode) {
+    return (
+      <div className={`bubble-shell ${isRightAnchored ? "right-anchored" : "left-anchored"} ${dockCorner}`}>
+        <div className="dock-webview-wrap dock-webview-solo">
+          {!activeService ? (
+            <EmptyState
+              title="Pick an app from the dock"
+              body="Click an icon on the dock to open a quick-access bubble."
+            />
+          ) : (
+            renderedServices.map((service) => (
+              <webview
+                key={service.id}
+                ref={(node) => {
+                  if (node) {
+                    webviewRefs.current[service.id] = node;
+                  } else {
+                    delete webviewRefs.current[service.id];
+                  }
+                }}
+                className={`service-webview ${service.id === activeServiceId ? "visible" : "hidden"}`}
+                src={service.url}
+                partition={service.sessionPartition}
+                preload={guestPreloadPath}
+                useragent={service.userAgent || undefined}
+                allowpopups="false"
+              />
+            ))
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className={`app-shell ${appState.ui.sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
       <div className="titlebar-drag-region">
@@ -565,6 +687,11 @@ function App() {
               <circle cx="44" cy="52" r="5.5" />
             </svg>
             <span>Comms Hub</span>
+          </div>
+          <div className="titlebar-actions">
+            <button className="titlebar-mode-button" onClick={() => setWindowMode("dock")} type="button">
+              Dock mode
+            </button>
           </div>
       </div>
 

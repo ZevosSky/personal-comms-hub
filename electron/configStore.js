@@ -160,6 +160,9 @@ const schema = {
       notificationsEnabled: true,
       memorySaverEnabled: true,
       sidebarCollapsed: false,
+      windowMode: "full",
+      dockCorner: "bottom-left",
+      dockExpanded: true,
       notificationLastSeenByService: {}
     }
   },
@@ -237,6 +240,9 @@ export const getAppState = () => {
     notificationsEnabled: rawUi.notificationsEnabled ?? true,
     memorySaverEnabled: rawUi.memorySaverEnabled ?? true,
     sidebarCollapsed: rawUi.sidebarCollapsed ?? false,
+    windowMode: rawUi.windowMode ?? "full",
+    dockCorner: rawUi.dockCorner ?? "bottom-left",
+    dockExpanded: rawUi.dockExpanded ?? true,
     notificationLastSeenByService: rawUi.notificationLastSeenByService ?? {}
   };
 

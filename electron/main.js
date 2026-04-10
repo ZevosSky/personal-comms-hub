@@ -9,6 +9,7 @@ import {
   ipcMain,
   nativeImage,
   Notification,
+  screen,
   session,
   shell
 } from "electron";
@@ -31,6 +32,8 @@ const packageJson = JSON.parse(
 );
 
 let mainWindow = null;
+let dockWindow = null;
+let bubbleWindow = null;
 const isDev = process.argv.includes("--dev");
 const guestPreloadPath = path.join(__dirname, "guestPreload.js");
 const updatesRepository =
@@ -58,6 +61,11 @@ const embeddedAuthHosts = new Set([
   "messenger.com",
   "teams.microsoft.com"
 ]);
+const dockWindowSize = {
+  dock: { width: 72, height: 420 },
+  bubble: { width: 980, height: 820 },
+  crossMargin: 18
+};
 
 const isSafeHttpUrl = (value) => {
   try {
@@ -224,12 +232,15 @@ const flushKnownSessions = async () => {
   );
 };
 
-const broadcastState = (state) => {
-  if (!mainWindow || mainWindow.isDestroyed()) {
-    return;
-  }
+const getAllAppWindows = () =>
+  [mainWindow, dockWindow, bubbleWindow].filter(
+    (windowInstance) => windowInstance && !windowInstance.isDestroyed()
+  );
 
-  mainWindow.webContents.send("state:updated", state);
+const broadcastState = (state) => {
+  for (const windowInstance of getAllAppWindows()) {
+    windowInstance.webContents.send("state:updated", state);
+  }
 };
 
 const markActiveServiceSeen = () => {
@@ -243,9 +254,114 @@ const markActiveServiceSeen = () => {
   return nextState;
 };
 
-const createWindow = async () => {
+const getDockBounds = (ui = getAppState().ui) => {
+  const { dock: target, crossMargin } = dockWindowSize;
+  const workArea = screen.getPrimaryDisplay().workArea;
+
+  let x = workArea.x;
+  let y = workArea.y + workArea.height - target.height - crossMargin;
+
+  switch (ui.dockCorner) {
+    case "top-left":
+      x = workArea.x;
+      y = workArea.y + crossMargin;
+      break;
+    case "top-right":
+      x = workArea.x + workArea.width - target.width;
+      y = workArea.y + crossMargin;
+      break;
+    case "bottom-right":
+      x = workArea.x + workArea.width - target.width;
+      y = workArea.y + workArea.height - target.height - crossMargin;
+      break;
+    case "bottom-left":
+    default:
+      x = workArea.x;
+      y = workArea.y + workArea.height - target.height - crossMargin;
+      break;
+  }
+
+  return {
+    ...target,
+    x,
+    y
+  };
+};
+
+const getBubbleBounds = (ui = getAppState().ui) => {
+  const { bubble, crossMargin } = dockWindowSize;
+  const workArea = screen.getPrimaryDisplay().workArea;
+  const dockBounds = getDockBounds(ui);
+  const rightAnchored = ui.dockCorner === "top-right" || ui.dockCorner === "bottom-right";
+
+  let x = rightAnchored ? dockBounds.x - bubble.width : dockBounds.x + dockBounds.width;
+  let y = dockBounds.y;
+
+  if (ui.dockCorner === "top-left" || ui.dockCorner === "top-right") {
+    y = workArea.y + crossMargin;
+  } else {
+    y = workArea.y + workArea.height - bubble.height - crossMargin;
+  }
+
+  return {
+    ...bubble,
+    x,
+    y
+  };
+};
+
+const applyDockBounds = () => {
+  if (!dockWindow || dockWindow.isDestroyed()) {
+    return;
+  }
+
+  const bounds = getDockBounds();
+  dockWindow.setBounds(bounds, true);
+};
+
+const applyBubbleBounds = () => {
+  if (!bubbleWindow || bubbleWindow.isDestroyed()) {
+    return;
+  }
+
+  const bounds = getBubbleBounds();
+  bubbleWindow.setBounds(bounds, true);
+};
+
+const attachSharedWindowBehavior = (windowInstance) => {
+  windowInstance.webContents.setWindowOpenHandler(({ url }) => {
+    shell.openExternal(url);
+    return { action: "deny" };
+  });
+
+  windowInstance.setMenuBarVisibility(false);
+  windowInstance.on("focus", () => {
+    markActiveServiceSeen();
+  });
+  windowInstance.on("close", () => {
+    flushKnownSessions().catch(() => {});
+  });
+};
+
+const loadRendererIntoWindow = async (windowInstance, mode = "full") => {
   const distEntry = path.join(__dirname, "..", "dist", "index.html");
 
+  if (isDev) {
+    try {
+      await windowInstance.loadURL(`http://localhost:5173/?mode=${mode}`);
+      if (mode === "full") {
+        windowInstance.webContents.openDevTools({ mode: "detach" });
+      }
+    } catch (error) {
+      console.error("Failed to load dev server, falling back to dist build.", error);
+      await windowInstance.loadFile(distEntry, { query: { mode } });
+    }
+  } else {
+    await windowInstance.loadFile(distEntry, { query: { mode } });
+  }
+};
+
+const createMainWindow = async () => {
   mainWindow = new BrowserWindow({
     width: 1440,
     height: 960,
@@ -276,30 +392,126 @@ const createWindow = async () => {
     }
   });
 
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url);
-    return { action: "deny" };
+  attachSharedWindowBehavior(mainWindow);
+  mainWindow.on("closed", () => {
+    mainWindow = null;
   });
+  await loadRendererIntoWindow(mainWindow, "full");
+};
 
-  mainWindow.setMenuBarVisibility(false);
-  mainWindow.on("focus", () => {
-    markActiveServiceSeen();
-  });
-  mainWindow.on("close", () => {
-    flushKnownSessions().catch(() => {});
-  });
+const createDockWindow = async () => {
+  const bounds = getDockBounds();
 
-  if (isDev) {
-    try {
-      await mainWindow.loadURL("http://localhost:5173");
-      mainWindow.webContents.openDevTools({ mode: "detach" });
-    } catch (error) {
-      console.error("Failed to load dev server, falling back to dist build.", error);
-      await mainWindow.loadFile(distEntry);
+  dockWindow = new BrowserWindow({
+    ...bounds,
+    minWidth: dockWindowSize.dock.width,
+    minHeight: 420,
+    maxWidth: dockWindowSize.dock.width,
+    maxHeight: dockWindowSize.dock.height,
+    title: "Comms Hub Dock",
+    icon: appIcon,
+    frame: false,
+    resizable: false,
+    fullscreenable: false,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    backgroundColor: "#08111d",
+    webPreferences: {
+      preload: path.join(__dirname, "preload.js"),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false,
+      webSecurity: true,
+      allowRunningInsecureContent: false,
+      webviewTag: true,
+      additionalArguments: [`--guest-preload=${guestPreloadPath}`]
     }
-  } else {
-    await mainWindow.loadFile(distEntry);
+  });
+
+  attachSharedWindowBehavior(dockWindow);
+  dockWindow.on("closed", () => {
+    dockWindow = null;
+  });
+  await loadRendererIntoWindow(dockWindow, "dock");
+};
+
+const createBubbleWindow = async () => {
+  const bounds = getBubbleBounds();
+
+  bubbleWindow = new BrowserWindow({
+    ...bounds,
+    minWidth: 560,
+    minHeight: 520,
+    maxWidth: dockWindowSize.bubble.width,
+    maxHeight: dockWindowSize.bubble.height,
+    title: "Comms Hub Bubble",
+    icon: appIcon,
+    frame: false,
+    resizable: false,
+    fullscreenable: false,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    backgroundColor: "#08111d",
+    parent: dockWindow ?? undefined,
+    webPreferences: {
+      preload: path.join(__dirname, "preload.js"),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false,
+      webSecurity: true,
+      allowRunningInsecureContent: false,
+      webviewTag: true,
+      additionalArguments: [`--guest-preload=${guestPreloadPath}`]
+    }
+  });
+
+  attachSharedWindowBehavior(bubbleWindow);
+  bubbleWindow.on("closed", () => {
+    bubbleWindow = null;
+  });
+  await loadRendererIntoWindow(bubbleWindow, "bubble");
+};
+
+const syncWindowMode = async () => {
+  const { windowMode } = getAppState().ui;
+
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    await createMainWindow();
   }
+
+  if (windowMode === "dock") {
+    if (!dockWindow || dockWindow.isDestroyed()) {
+      await createDockWindow();
+    } else {
+      applyDockBounds();
+    }
+
+    if (getAppState().ui.dockExpanded) {
+      if (!bubbleWindow || bubbleWindow.isDestroyed()) {
+        await createBubbleWindow();
+      } else {
+        applyBubbleBounds();
+        bubbleWindow.show();
+      }
+    } else if (bubbleWindow && !bubbleWindow.isDestroyed()) {
+      bubbleWindow.hide();
+    }
+
+    mainWindow.hide();
+    dockWindow.show();
+    dockWindow.focus();
+    return;
+  }
+
+  if (dockWindow && !dockWindow.isDestroyed()) {
+    dockWindow.hide();
+  }
+  if (bubbleWindow && !bubbleWindow.isDestroyed()) {
+    bubbleWindow.hide();
+  }
+
+  mainWindow.show();
+  mainWindow.focus();
 };
 
 app.on("web-contents-created", (_event, contents) => {
@@ -397,8 +609,47 @@ ipcMain.handle("ui:set-sidebar-collapsed", (_event, collapsed) => {
   return state;
 });
 
-ipcMain.handle("icons:upload", async () => {
-  const result = await dialog.showOpenDialog(mainWindow, {
+ipcMain.handle("ui:set-window-mode", async (_event, mode) => {
+  const nextMode = mode === "dock" ? "dock" : "full";
+  const state = setUiState({ windowMode: nextMode });
+  broadcastState(state);
+  await syncWindowMode();
+  return getAppState();
+});
+
+ipcMain.handle("ui:set-dock-corner", (_event, corner) => {
+  const supportedCorner = new Set(["top-left", "top-right", "bottom-left", "bottom-right"]);
+  const state = setUiState({
+    dockCorner: supportedCorner.has(corner) ? corner : "bottom-left"
+  });
+  applyDockBounds();
+  applyBubbleBounds();
+  broadcastState(state);
+  return state;
+});
+
+ipcMain.handle("ui:set-dock-expanded", async (_event, expanded) => {
+  const state = setUiState({ dockExpanded: Boolean(expanded) });
+  if (state.ui.windowMode === "dock") {
+    if (expanded) {
+      if (!bubbleWindow || bubbleWindow.isDestroyed()) {
+        await createBubbleWindow();
+      } else {
+        applyBubbleBounds();
+        bubbleWindow.show();
+        bubbleWindow.focus();
+      }
+    } else if (bubbleWindow && !bubbleWindow.isDestroyed()) {
+      bubbleWindow.hide();
+    }
+  }
+  broadcastState(state);
+  return state;
+});
+
+ipcMain.handle("icons:upload", async (event) => {
+  const parentWindow = BrowserWindow.fromWebContents(event.sender) ?? mainWindow ?? dockWindow ?? undefined;
+  const result = await dialog.showOpenDialog(parentWindow, {
     title: "Choose an app icon",
     properties: ["openFile"],
     filters: [
@@ -498,7 +749,7 @@ app.whenReady().then(() => {
   setInterval(() => {
     flushKnownSessions().catch(() => {});
   }, 30000);
-  createWindow().catch((error) => {
+  syncWindowMode().catch((error) => {
     console.error("Failed to create main window.", error);
     app.quit();
   });
@@ -521,7 +772,7 @@ app.on("window-all-closed", () => {
 
 app.on("activate", () => {
   if (BrowserWindow.getAllWindows().length === 0) {
-    createWindow().catch((error) => {
+    syncWindowMode().catch((error) => {
       console.error("Failed to recreate main window.", error);
     });
   }
