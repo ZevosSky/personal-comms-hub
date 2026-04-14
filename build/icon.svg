@@ -1,18 +1,18 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
-  <rect width="256" height="256" rx="56" fill="#0f172a" />
-  <g fill="none" stroke="#dbeafe" stroke-linecap="round" stroke-linejoin="round" stroke-width="18">
-    <line x1="80" y1="128" x2="120" y2="128" />
-    <line x1="120" y1="48" x2="120" y2="208" />
-    <line x1="120" y1="48" x2="152" y2="48" />
-    <line x1="120" y1="101.33" x2="152" y2="101.33" />
-    <line x1="120" y1="154.67" x2="152" y2="154.67" />
-    <line x1="120" y1="208" x2="152" y2="208" />
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <rect width="64" height="64" rx="18" fill="#0f172a" />
+  <g fill="none" stroke="#e0f2fe" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round">
+    <line x1="20" y1="32" x2="30" y2="32" />
+    <line x1="30" y1="12" x2="30" y2="52" />
+    <line x1="30" y1="12" x2="38" y2="12" />
+    <line x1="30" y1="25.33" x2="38" y2="25.33" />
+    <line x1="30" y1="38.67" x2="38" y2="38.67" />
+    <line x1="30" y1="52" x2="38" y2="52" />
   </g>
-  <g fill="#dbeafe">
-    <circle cx="64" cy="128" r="20" />
-    <circle cx="174" cy="48" r="18" />
-    <circle cx="174" cy="101.33" r="18" />
-    <circle cx="174" cy="154.67" r="18" />
-    <circle cx="174" cy="208" r="18" />
+  <g fill="#e0f2fe">
+    <circle cx="14" cy="32" r="6" />
+    <circle cx="44" cy="12" r="5.5" />
+    <circle cx="44" cy="25.33" r="5.5" />
+    <circle cx="44" cy="38.67" r="5.5" />
+    <circle cx="44" cy="52" r="5.5" />
   </g>
 </svg>
