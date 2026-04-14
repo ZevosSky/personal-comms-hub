@@ -19,12 +19,32 @@ From the project root:
 npm install
 ```
 
+Or use the helper scripts:
+
+```bash
+build.bat install
+```
+
+```bash
+./build.sh install
+```
+
 ### Run In Development
 
 This starts the Vite dev server and launches Electron against it:
 
 ```bash
 npm run dev
+```
+
+Or:
+
+```bash
+build.bat dev
+```
+
+```bash
+./build.sh dev
 ```
 
 ### Run The Built App Locally
@@ -35,10 +55,58 @@ Build the renderer first:
 npm run build
 ```
 
+Or:
+
+```bash
+build.bat build
+```
+
+```bash
+./build.sh build
+```
+
 Then launch Electron against the built files:
 
 ```bash
 npm start
+```
+
+Or:
+
+```bash
+build.bat start
+```
+
+```bash
+./build.sh start
+```
+
+### Helper Scripts
+
+The repo includes two top-level helper scripts:
+
+- `build.bat` for Windows Command Prompt / PowerShell
+- `build.sh` for Linux, macOS, and WSL shells
+
+They support:
+
+- `install`
+- `dev`
+- `build`
+- `start`
+- `smoke`
+- `dist`
+- `dist:win`
+- `dist:linux`
+
+To show their built-in help:
+
+```bash
+build.bat help
+```
+
+```bash
+./build.sh help
 ```
 
 ## Packaging
@@ -57,10 +125,16 @@ Build the Windows NSIS installer:
 npm run dist:win
 ```
 
+Or:
+
+```bash
+build.bat dist:win
+```
+
 The installer is generated at:
 
 ```bash
-release/Comms Hub Setup 1.1.0.exe
+release/Comms Hub Setup 1.2.0.exe
 ```
 
 ### Linux AppImage
@@ -69,6 +143,12 @@ Build the Linux AppImage:
 
 ```bash
 npm run dist:linux
+```
+
+Or:
+
+```bash
+./build.sh dist:linux
 ```
 
 Note:
@@ -85,6 +165,16 @@ Run the default packaging command:
 npm run dist
 ```
 
+Or:
+
+```bash
+build.bat dist
+```
+
+```bash
+./build.sh dist
+```
+
 ## GitHub Actions Builds
 
 This repo includes a GitHub Actions workflow at [.github/workflows/build-installers.yml](C:/Users/Gary%20Yang/Documents/CommsApp/.github/workflows/build-installers.yml) that:
@@ -93,7 +183,7 @@ This repo includes a GitHub Actions workflow at [.github/workflows/build-install
 - builds the Linux AppImage on `ubuntu-latest`
 - runs smoke checks on both Windows and Linux first
 - uploads both outputs as workflow artifacts
-- publishes a GitHub Release automatically only for version tags like `v1.1.0`
+- publishes a GitHub Release automatically only for version tags like `v1.2.0`
 
 It runs on:
 
@@ -125,10 +215,10 @@ Example:
 
 ```bash
 git add package.json
-git commit -m "Bump version to 1.1.0"
-git tag v1.1.0
+git commit -m "Bump version to 1.2.0"
+git tag v1.2.0
 git push origin main
-git push origin v1.1.0
+git push origin v1.2.0
 ```
 
 What happens next:

@@ -657,7 +657,7 @@ function App() {
                 }}
                 className={`service-webview ${service.id === activeServiceId ? "visible" : "hidden"}`}
                 src={service.url}
-                partition={service.sessionPartition}
+                partition={service.useDefaultSession ? undefined : service.sessionPartition}
                 preload={guestPreloadPath}
                 useragent={service.userAgent || undefined}
                 allowpopups="false"
@@ -993,7 +993,7 @@ function App() {
                 }}
                 className={`service-webview ${service.id === activeServiceId ? "visible" : "hidden"}`}
                 src={service.url}
-                partition={service.sessionPartition}
+                partition={service.useDefaultSession ? undefined : service.sessionPartition}
                 preload={guestPreloadPath}
                 useragent={service.userAgent || undefined}
                 allowpopups="false"

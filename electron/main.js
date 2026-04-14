@@ -5,13 +5,16 @@ import fs from "node:fs";
 import {
   app,
   BrowserWindow,
+  desktopCapturer,
   dialog,
   ipcMain,
+  Menu,
   nativeImage,
   Notification,
   screen,
   session,
-  shell
+  shell,
+  Tray
 } from "electron";
 import {
   appendNotificationHistory,
@@ -34,19 +37,32 @@ const packageJson = JSON.parse(
 let mainWindow = null;
 let dockWindow = null;
 let bubbleWindow = null;
+let appTray = null;
+let quitRequested = false;
+let shutdownInProgress = false;
 const isDev = process.argv.includes("--dev");
+const isLinux = process.platform === "linux";
 const guestPreloadPath = path.join(__dirname, "guestPreload.js");
+const buildIconPath = path.join(__dirname, "..", "build", "icon.png");
 const updatesRepository =
   packageJson.repository?.url?.match(/github\.com\/([^/]+\/[^/.]+)(?:\.git)?$/)?.[1] ?? null;
-const appIcon = nativeImage.createFromDataURL(
-  `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(
-    "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='18' fill='#0f172a'/><g fill='none' stroke='#e0f2fe' stroke-width='4.5' stroke-linecap='round' stroke-linejoin='round'><line x1='20' y1='32' x2='30' y2='32'/><line x1='30' y1='12' x2='30' y2='52'/><line x1='30' y1='12' x2='38' y2='12'/><line x1='30' y1='25.33' x2='38' y2='25.33'/><line x1='30' y1='38.67' x2='38' y2='38.67'/><line x1='30' y1='52' x2='38' y2='52'/></g><circle cx='14' cy='32' r='6' fill='#e0f2fe'/><circle cx='44' cy='12' r='5.5' fill='#e0f2fe'/><circle cx='44' cy='25.33' r='5.5' fill='#e0f2fe'/><circle cx='44' cy='38.67' r='5.5' fill='#e0f2fe'/><circle cx='44' cy='52' r='5.5' fill='#e0f2fe'/></svg>"
-  )}`
-);
+const inlineIconSvg =
+  "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='18' fill='#0f172a'/><g fill='none' stroke='#e0f2fe' stroke-width='4.5' stroke-linecap='round' stroke-linejoin='round'><line x1='20' y1='32' x2='30' y2='32'/><line x1='30' y1='12' x2='30' y2='52'/><line x1='30' y1='12' x2='38' y2='12'/><line x1='30' y1='25.33' x2='38' y2='25.33'/><line x1='30' y1='38.67' x2='38' y2='38.67'/><line x1='30' y1='52' x2='38' y2='52'/></g><circle cx='14' cy='32' r='6' fill='#e0f2fe'/><circle cx='44' cy='12' r='5.5' fill='#e0f2fe'/><circle cx='44' cy='25.33' r='5.5' fill='#e0f2fe'/><circle cx='44' cy='38.67' r='5.5' fill='#e0f2fe'/><circle cx='44' cy='52' r='5.5' fill='#e0f2fe'/></svg>";
+const appIcon = (() => {
+  const packagedIcon = nativeImage.createFromPath(buildIconPath);
+  if (!packagedIcon.isEmpty()) {
+    return packagedIcon;
+  }
+
+  return nativeImage.createFromDataURL(
+    `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(inlineIconSvg)}`
+  );
+})();
 const allowedPermissions = new Set([
   "notifications",
   "fullscreen",
   "media",
+  "display-capture",
   "clipboard-sanitized-write"
 ]);
 const configuredSessionPartitions = new Set();
@@ -196,6 +212,43 @@ const configureSessionPermissions = (targetSession) => {
     }
   );
 
+  targetSession.setDisplayMediaRequestHandler(
+    async (request, callback) => {
+      if (!isSafeHttpUrl(request.securityOrigin)) {
+        callback({});
+        return;
+      }
+
+      try {
+        const sources = await desktopCapturer.getSources({
+          types: ["screen", "window"],
+          thumbnailSize: { width: 0, height: 0 },
+          fetchWindowIcons: false
+        });
+        const preferredSource =
+          sources.find((source) => source.id.startsWith("screen:")) ?? sources[0];
+
+        if (!preferredSource && request.videoRequested) {
+          callback({});
+          return;
+        }
+
+        callback({
+          video: request.videoRequested ? preferredSource : undefined,
+          audio:
+            request.audioRequested && process.platform !== "darwin"
+              ? "loopback"
+              : undefined
+        });
+      } catch {
+        callback({});
+      }
+    },
+    {
+      useSystemPicker: true
+    }
+  );
+
   configuredSessionPartitions.add(key);
 };
 
@@ -236,6 +289,71 @@ const getAllAppWindows = () =>
   [mainWindow, dockWindow, bubbleWindow].filter(
     (windowInstance) => windowInstance && !windowInstance.isDestroyed()
   );
+
+const revealWindow = (windowInstance) => {
+  if (!windowInstance || windowInstance.isDestroyed()) {
+    return;
+  }
+
+  if (windowInstance.isMinimized()) {
+    windowInstance.restore();
+  }
+
+  windowInstance.show();
+  windowInstance.moveTop();
+
+  if (isLinux) {
+    windowInstance.flashFrame(true);
+    setTimeout(() => {
+      if (!windowInstance.isDestroyed()) {
+        windowInstance.flashFrame(false);
+        windowInstance.focus();
+      }
+    }, 250);
+    return;
+  }
+
+  windowInstance.focus();
+};
+
+const destroyTray = () => {
+  if (!appTray) {
+    return;
+  }
+
+  appTray.destroy();
+  appTray = null;
+};
+
+const destroyAllWindows = () => {
+  for (const windowInstance of [bubbleWindow, dockWindow, mainWindow]) {
+    if (windowInstance && !windowInstance.isDestroyed()) {
+      windowInstance.destroy();
+    }
+  }
+};
+
+const requestAppQuit = () => {
+  if (quitRequested || shutdownInProgress) {
+    return;
+  }
+
+  quitRequested = true;
+  app.quit();
+};
+
+const showFullApp = async () => {
+  const state = setUiState({
+    windowMode: "full",
+    dockExpanded: true
+  });
+  broadcastState(state);
+  await syncWindowMode();
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    revealWindow(mainWindow);
+  }
+  return getAppState();
+};
 
 const broadcastState = (state) => {
   for (const windowInstance of getAllAppWindows()) {
@@ -328,6 +446,41 @@ const applyBubbleBounds = () => {
   bubbleWindow.setBounds(bounds, true);
 };
 
+const configureFloatingUtilityWindow = (windowInstance) => {
+  if (!windowInstance || windowInstance.isDestroyed()) {
+    return;
+  }
+
+  windowInstance.setAlwaysOnTop(true, "floating");
+  windowInstance.setVisibleOnAllWorkspaces(true, {
+    visibleOnFullScreen: true,
+    skipTransformProcessType: true
+  });
+};
+
+const restoreDockWindows = () => {
+  const state = getAppState();
+  if (state.ui.windowMode !== "dock") {
+    return;
+  }
+
+  if (dockWindow && !dockWindow.isDestroyed()) {
+    applyDockBounds();
+    configureFloatingUtilityWindow(dockWindow);
+    if (!dockWindow.isVisible()) {
+      dockWindow.showInactive();
+    }
+  }
+
+  if (state.ui.dockExpanded && bubbleWindow && !bubbleWindow.isDestroyed()) {
+    applyBubbleBounds();
+    configureFloatingUtilityWindow(bubbleWindow);
+    if (!bubbleWindow.isVisible()) {
+      bubbleWindow.showInactive();
+    }
+  }
+};
+
 const attachSharedWindowBehavior = (windowInstance) => {
   windowInstance.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
@@ -335,12 +488,78 @@ const attachSharedWindowBehavior = (windowInstance) => {
   });
 
   windowInstance.setMenuBarVisibility(false);
+  windowInstance.on("close", (event) => {
+    if (!shutdownInProgress && process.platform !== "darwin") {
+      event.preventDefault();
+      requestAppQuit();
+      return;
+    }
+
+    flushKnownSessions().catch(() => {});
+  });
   windowInstance.on("focus", () => {
     markActiveServiceSeen();
   });
-  windowInstance.on("close", () => {
-    flushKnownSessions().catch(() => {});
+};
+
+const updateTrayMenu = () => {
+  if (!appTray) {
+    return;
+  }
+
+  const state = getAppState();
+  const menu = Menu.buildFromTemplate([
+    {
+      label: "Open full app",
+      click: () => {
+        showFullApp().catch(() => {});
+      }
+    },
+    {
+      label: state.ui.windowMode === "dock" ? "Restore dock mode" : "Enter dock mode",
+      click: async () => {
+        const nextState = setUiState({
+          windowMode: state.ui.windowMode === "dock" ? "full" : "dock"
+        });
+        broadcastState(nextState);
+        await syncWindowMode();
+      }
+    },
+    { type: "separator" },
+    {
+      label: "Quit",
+      click: () => {
+        requestAppQuit();
+      }
+    }
+  ]);
+
+  appTray.setToolTip("Comms Hub");
+  appTray.setContextMenu(menu);
+};
+
+const ensureTray = () => {
+  if (appTray) {
+    updateTrayMenu();
+    return;
+  }
+
+  appTray = new Tray(appIcon.resize({ width: 16, height: 16 }));
+  if (isLinux) {
+    appTray.setIgnoreDoubleClickEvents(true);
+  }
+  appTray.on("click", () => {
+    showFullApp().catch(() => {});
   });
+  if (!isLinux) {
+    appTray.on("double-click", () => {
+      showFullApp().catch(() => {});
+    });
+  }
+  appTray.on("right-click", () => {
+    appTray?.popUpContextMenu();
+  });
+  updateTrayMenu();
 };
 
 const loadRendererIntoWindow = async (windowInstance, mode = "full") => {
@@ -429,6 +648,7 @@ const createDockWindow = async () => {
   });
 
   attachSharedWindowBehavior(dockWindow);
+  configureFloatingUtilityWindow(dockWindow);
   dockWindow.on("closed", () => {
     dockWindow = null;
   });
@@ -452,7 +672,6 @@ const createBubbleWindow = async () => {
     alwaysOnTop: true,
     skipTaskbar: true,
     backgroundColor: "#08111d",
-    parent: dockWindow ?? undefined,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -466,6 +685,7 @@ const createBubbleWindow = async () => {
   });
 
   attachSharedWindowBehavior(bubbleWindow);
+  configureFloatingUtilityWindow(bubbleWindow);
   bubbleWindow.on("closed", () => {
     bubbleWindow = null;
   });
@@ -614,6 +834,7 @@ ipcMain.handle("ui:set-window-mode", async (_event, mode) => {
   const state = setUiState({ windowMode: nextMode });
   broadcastState(state);
   await syncWindowMode();
+  updateTrayMenu();
   return getAppState();
 });
 
@@ -625,6 +846,7 @@ ipcMain.handle("ui:set-dock-corner", (_event, corner) => {
   applyDockBounds();
   applyBubbleBounds();
   broadcastState(state);
+  updateTrayMenu();
   return state;
 });
 
@@ -644,6 +866,7 @@ ipcMain.handle("ui:set-dock-expanded", async (_event, expanded) => {
     }
   }
   broadcastState(state);
+  updateTrayMenu();
   return state;
 });
 
@@ -746,9 +969,19 @@ ipcMain.handle("paths:get-guest-preload", () => guestPreloadPath.replace(/\\/g, 
 
 app.whenReady().then(() => {
   configureKnownSessions();
+  ensureTray();
   setInterval(() => {
     flushKnownSessions().catch(() => {});
   }, 30000);
+  screen.on("display-metrics-changed", () => {
+    restoreDockWindows();
+  });
+  screen.on("display-added", () => {
+    restoreDockWindows();
+  });
+  screen.on("display-removed", () => {
+    restoreDockWindows();
+  });
   syncWindowMode().catch((error) => {
     console.error("Failed to create main window.", error);
     app.quit();
@@ -756,10 +989,17 @@ app.whenReady().then(() => {
 });
 
 app.on("before-quit", (event) => {
+  if (shutdownInProgress) {
+    return;
+  }
+
   event.preventDefault();
+  shutdownInProgress = true;
+  destroyTray();
   flushKnownSessions()
     .catch(() => {})
     .finally(() => {
+      destroyAllWindows();
       app.exit();
     });
 });
@@ -771,6 +1011,8 @@ app.on("window-all-closed", () => {
 });
 
 app.on("activate", () => {
+  ensureTray();
+  restoreDockWindows();
   if (BrowserWindow.getAllWindows().length === 0) {
     syncWindowMode().catch((error) => {
       console.error("Failed to recreate main window.", error);

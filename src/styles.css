@@ -271,11 +271,16 @@ input {
 
 .titlebar-mode-button {
   border: 1px solid rgba(125, 211, 252, 0.28);
-  border-radius: 999px;
+  border-radius: 10px;
   background: rgba(14, 165, 233, 0.12);
   color: #dff3ff;
-  padding: 7px 12px;
+  min-width: 84px;
+  min-height: 32px;
+  padding: 6px 12px;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   transition: 160ms ease;
 }
 

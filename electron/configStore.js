@@ -10,6 +10,27 @@ const svgToDataUrl = (svg) =>
 const modernChromeUserAgent =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36";
 
+const getServiceCompatibilityOverrides = (service) => {
+  try {
+    const hostname = new URL(service.url ?? "").hostname.toLowerCase();
+    const normalizedHostname = hostname.startsWith("www.")
+      ? hostname.slice(4)
+      : hostname;
+
+    if (normalizedHostname === "web.wechat.com" || normalizedHostname === "wx.qq.com") {
+      return {
+        userAgent: modernChromeUserAgent,
+        useDefaultSession: true,
+        sessionPartition: null
+      };
+    }
+  } catch {
+    return {};
+  }
+
+  return {};
+};
+
 const builtinIcons = {
   gmail: svgToDataUrl(
     "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='18' fill='#fff7ed'/><path d='M12 20l20 16 20-16v24a4 4 0 0 1-4 4H16a4 4 0 0 1-4-4z' fill='#ea4335'/><path d='M12 20a4 4 0 0 1 4-4h32a4 4 0 0 1 4 4L32 36z' fill='#fbbc04'/><path d='M12 20l20 15 20-15v24a4 4 0 0 1-4 4H16a4 4 0 0 1-4-4z' fill='none' stroke='#c2410c' stroke-width='2.5' stroke-linejoin='round'/></svg>"
@@ -213,21 +234,43 @@ const normalizeNotificationSettings = (settings = {}) => ({
 });
 
 const normalizeService = (service, existing) => ({
-  id: service.id,
-  name: service.name?.trim() || "Untitled App",
-  url: service.url?.trim() || "https://example.com",
-  iconSource: service.iconSource || builtinIcons.globe,
-  iconKey: service.iconKey ?? "globe",
-  isBuiltIn: existing?.isBuiltIn ?? service.isBuiltIn ?? false,
-  isEnabled: service.isEnabled ?? existing?.isEnabled ?? true,
-  sessionPartition: existing?.sessionPartition ?? service.sessionPartition ?? `persist:service-${service.id}`,
-  supportsBadgeDetection: service.supportsBadgeDetection ?? existing?.supportsBadgeDetection ?? true,
-  keepAliveInBackground:
-    service.keepAliveInBackground ?? existing?.keepAliveInBackground ?? false,
-  userAgent: service.userAgent ?? existing?.userAgent ?? null,
-  notificationSettings: normalizeNotificationSettings(
-    service.notificationSettings ?? existing?.notificationSettings
-  )
+  ...(() => {
+    const compatibilityOverrides = getServiceCompatibilityOverrides(service);
+    const useDefaultSession =
+      compatibilityOverrides.useDefaultSession ??
+      service.useDefaultSession ??
+      existing?.useDefaultSession ??
+      false;
+
+    return {
+      id: service.id,
+      name: service.name?.trim() || "Untitled App",
+      url: service.url?.trim() || "https://example.com",
+      iconSource: service.iconSource || builtinIcons.globe,
+      iconKey: service.iconKey ?? "globe",
+      isBuiltIn: existing?.isBuiltIn ?? service.isBuiltIn ?? false,
+      isEnabled: service.isEnabled ?? existing?.isEnabled ?? true,
+      sessionPartition: useDefaultSession
+        ? null
+        : compatibilityOverrides.sessionPartition ??
+          service.sessionPartition ??
+          existing?.sessionPartition ??
+          `persist:service-${service.id}`,
+      supportsBadgeDetection:
+        service.supportsBadgeDetection ?? existing?.supportsBadgeDetection ?? true,
+      keepAliveInBackground:
+        service.keepAliveInBackground ?? existing?.keepAliveInBackground ?? false,
+      userAgent:
+        compatibilityOverrides.userAgent ??
+        service.userAgent ??
+        existing?.userAgent ??
+        null,
+      useDefaultSession,
+      notificationSettings: normalizeNotificationSettings(
+        service.notificationSettings ?? existing?.notificationSettings
+      )
+    };
+  })()
 });
 
 export const getAppState = () => {
