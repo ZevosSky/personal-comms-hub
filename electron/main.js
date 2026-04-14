@@ -5,6 +5,7 @@ import fs from "node:fs";
 import {
   app,
   BrowserWindow,
+  desktopCapturer,
   dialog,
   ipcMain,
   nativeImage,
@@ -47,6 +48,7 @@ const allowedPermissions = new Set([
   "notifications",
   "fullscreen",
   "media",
+  "display-capture",
   "clipboard-sanitized-write"
 ]);
 const configuredSessionPartitions = new Set();
@@ -196,6 +198,43 @@ const configureSessionPermissions = (targetSession) => {
     }
   );
 
+  targetSession.setDisplayMediaRequestHandler(
+    async (request, callback) => {
+      if (!isSafeHttpUrl(request.securityOrigin)) {
+        callback({});
+        return;
+      }
+
+      try {
+        const sources = await desktopCapturer.getSources({
+          types: ["screen", "window"],
+          thumbnailSize: { width: 0, height: 0 },
+          fetchWindowIcons: false
+        });
+        const preferredSource =
+          sources.find((source) => source.id.startsWith("screen:")) ?? sources[0];
+
+        if (!preferredSource && request.videoRequested) {
+          callback({});
+          return;
+        }
+
+        callback({
+          video: request.videoRequested ? preferredSource : undefined,
+          audio:
+            request.audioRequested && process.platform !== "darwin"
+              ? "loopback"
+              : undefined
+        });
+      } catch {
+        callback({});
+      }
+    },
+    {
+      useSystemPicker: true
+    }
+  );
+
   configuredSessionPartitions.add(key);
 };
 
@@ -328,6 +367,41 @@ const applyBubbleBounds = () => {
   bubbleWindow.setBounds(bounds, true);
 };
 
+const configureFloatingUtilityWindow = (windowInstance) => {
+  if (!windowInstance || windowInstance.isDestroyed()) {
+    return;
+  }
+
+  windowInstance.setAlwaysOnTop(true, "floating");
+  windowInstance.setVisibleOnAllWorkspaces(true, {
+    visibleOnFullScreen: true,
+    skipTransformProcessType: true
+  });
+};
+
+const restoreDockWindows = () => {
+  const state = getAppState();
+  if (state.ui.windowMode !== "dock") {
+    return;
+  }
+
+  if (dockWindow && !dockWindow.isDestroyed()) {
+    applyDockBounds();
+    configureFloatingUtilityWindow(dockWindow);
+    if (!dockWindow.isVisible()) {
+      dockWindow.showInactive();
+    }
+  }
+
+  if (state.ui.dockExpanded && bubbleWindow && !bubbleWindow.isDestroyed()) {
+    applyBubbleBounds();
+    configureFloatingUtilityWindow(bubbleWindow);
+    if (!bubbleWindow.isVisible()) {
+      bubbleWindow.showInactive();
+    }
+  }
+};
+
 const attachSharedWindowBehavior = (windowInstance) => {
   windowInstance.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
@@ -429,6 +503,7 @@ const createDockWindow = async () => {
   });
 
   attachSharedWindowBehavior(dockWindow);
+  configureFloatingUtilityWindow(dockWindow);
   dockWindow.on("closed", () => {
     dockWindow = null;
   });
@@ -452,7 +527,6 @@ const createBubbleWindow = async () => {
     alwaysOnTop: true,
     skipTaskbar: true,
     backgroundColor: "#08111d",
-    parent: dockWindow ?? undefined,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -466,6 +540,7 @@ const createBubbleWindow = async () => {
   });
 
   attachSharedWindowBehavior(bubbleWindow);
+  configureFloatingUtilityWindow(bubbleWindow);
   bubbleWindow.on("closed", () => {
     bubbleWindow = null;
   });
@@ -749,6 +824,15 @@ app.whenReady().then(() => {
   setInterval(() => {
     flushKnownSessions().catch(() => {});
   }, 30000);
+  screen.on("display-metrics-changed", () => {
+    restoreDockWindows();
+  });
+  screen.on("display-added", () => {
+    restoreDockWindows();
+  });
+  screen.on("display-removed", () => {
+    restoreDockWindows();
+  });
   syncWindowMode().catch((error) => {
     console.error("Failed to create main window.", error);
     app.quit();
@@ -771,6 +855,7 @@ app.on("window-all-closed", () => {
 });
 
 app.on("activate", () => {
+  restoreDockWindows();
   if (BrowserWindow.getAllWindows().length === 0) {
     syncWindowMode().catch((error) => {
       console.error("Failed to recreate main window.", error);
