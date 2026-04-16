@@ -183,6 +183,7 @@ const schema = {
       sidebarCollapsed: false,
       windowMode: "full",
       dockCorner: "bottom-left",
+      dockHeight: 420,
       dockExpanded: true,
       notificationLastSeenByService: {}
     }
@@ -232,6 +233,15 @@ const normalizeNotificationSettings = (settings = {}) => ({
   badgeEnabled: settings.badgeEnabled ?? true,
   captureWebNotifications: settings.captureWebNotifications ?? true
 });
+
+const normalizeDockHeight = (value) => {
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue)) {
+    return 420;
+  }
+
+  return Math.min(720, Math.max(280, Math.round(numericValue)));
+};
 
 const normalizeService = (service, existing) => ({
   ...(() => {
@@ -285,6 +295,7 @@ export const getAppState = () => {
     sidebarCollapsed: rawUi.sidebarCollapsed ?? false,
     windowMode: rawUi.windowMode ?? "full",
     dockCorner: rawUi.dockCorner ?? "bottom-left",
+    dockHeight: normalizeDockHeight(rawUi.dockHeight),
     dockExpanded: rawUi.dockExpanded ?? true,
     notificationLastSeenByService: rawUi.notificationLastSeenByService ?? {}
   };

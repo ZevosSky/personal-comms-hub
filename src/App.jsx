@@ -156,10 +156,14 @@ const EmptyState = ({ title = "Choose a service from the left rail", body }) => 
 
 const rendererMode = (() => {
   const mode = new URLSearchParams(window.location.search).get("mode");
-  return mode === "dock" || mode === "bubble" ? mode : "full";
+  return mode === "dock" || mode === "bubble" || mode === "trigger" ? mode : "full";
 })();
 
 const rightAnchoredCorners = new Set(["top-right", "bottom-right"]);
+const dockHeightRange = {
+  min: 280,
+  max: 720
+};
 
 function App() {
   const [appState, setAppState] = useState(null);
@@ -198,6 +202,16 @@ function App() {
   }, []);
 
   useEffect(() => {
+    document.documentElement.dataset.windowMode = rendererMode;
+    document.body.dataset.windowMode = rendererMode;
+
+    return () => {
+      delete document.documentElement.dataset.windowMode;
+      delete document.body.dataset.windowMode;
+    };
+  }, []);
+
+  useEffect(() => {
     if (!appState || didAutoCheckUpdates) {
       return;
     }
@@ -224,6 +238,7 @@ function App() {
   const activeIndex = services.findIndex((service) => service.id === activeServiceId);
   const isDockMode = rendererMode === "dock";
   const isBubbleMode = rendererMode === "bubble";
+  const isTriggerMode = rendererMode === "trigger";
   const dockCorner = appState?.ui?.dockCorner ?? "bottom-left";
   const dockExpanded = appState?.ui?.dockExpanded ?? true;
   const isRightAnchored = rightAnchoredCorners.has(dockCorner);
@@ -454,6 +469,11 @@ function App() {
     setAppState(nextState);
   };
 
+  const setDockHeight = async (height) => {
+    const nextState = await window.commsApp.setDockHeight(height);
+    setAppState(nextState);
+  };
+
   const handleUploadIcon = async () => {
     const iconPath = await window.commsApp.uploadIcon();
     if (iconPath) {
@@ -570,6 +590,14 @@ function App() {
       setStatusMessage("Opened the latest release download.");
     }
   };
+
+  if (isTriggerMode) {
+    return (
+      <div className={`dock-trigger-shell ${isRightAnchored ? "right-anchored" : "left-anchored"} ${dockCorner}`}>
+        <div className="dock-trigger-tab" />
+      </div>
+    );
+  }
 
   if (!appState) {
     return <div className="loading-shell">{statusMessage}</div>;
@@ -961,12 +989,36 @@ function App() {
                 onChange={toggleMemorySaver}
               />
               <span>Memory saver mode</span>
+            </label>
+            <p className="footer-note">
+              Memory saver unloads idle apps by default. Apps marked Keep alive in background stay
+              mounted for background activity while the rest sleep to save RAM.
+            </p>
+            <div className="sidebar-section dock-settings-section">
+              <p className="eyebrow">Dock mode</p>
+              <label className="setting-row">
+                <span>Dock height</span>
+                <input
+                  className="setting-number-input"
+                  type="number"
+                  min={dockHeightRange.min}
+                  max={dockHeightRange.max}
+                  step="10"
+                  value={appState.ui.dockHeight ?? 420}
+                  onChange={(event) => {
+                    if (event.target.value === "") {
+                      return;
+                    }
+
+                    setDockHeight(event.target.value);
+                  }}
+                />
               </label>
-              <p className="footer-note">
-                Memory saver unloads idle apps by default. Apps marked Keep alive in background stay
-                mounted for background activity while the rest sleep to save RAM.
+              <p className="setting-note">
+                Controls the vertical size of the floating dock in pixels.
               </p>
             </div>
+          </div>
         </aside>
       ) : null}
 
