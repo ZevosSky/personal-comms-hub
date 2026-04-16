@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld("commsApp", {
   setSidebarCollapsed: (collapsed) => ipcRenderer.invoke("ui:set-sidebar-collapsed", collapsed),
   setWindowMode: (mode) => ipcRenderer.invoke("ui:set-window-mode", mode),
   setDockCorner: (corner) => ipcRenderer.invoke("ui:set-dock-corner", corner),
+  setDockHeight: (height) => ipcRenderer.invoke("ui:set-dock-height", height),
   setDockExpanded: (expanded) => ipcRenderer.invoke("ui:set-dock-expanded", expanded),
   uploadIcon: () => ipcRenderer.invoke("icons:upload"),
   openExternal: (url) => ipcRenderer.invoke("shell:open-external", url),

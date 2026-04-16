@@ -37,9 +37,12 @@ const packageJson = JSON.parse(
 let mainWindow = null;
 let dockWindow = null;
 let bubbleWindow = null;
+let dockTriggerWindow = null;
 let appTray = null;
 let quitRequested = false;
 let shutdownInProgress = false;
+let dockVisibilityPoll = null;
+let dockHideTimeout = null;
 const isDev = process.argv.includes("--dev");
 const isLinux = process.platform === "linux";
 const guestPreloadPath = path.join(__dirname, "guestPreload.js");
@@ -81,6 +84,25 @@ const dockWindowSize = {
   dock: { width: 72, height: 420 },
   bubble: { width: 980, height: 820 },
   crossMargin: 18
+};
+const dockTriggerSize = {
+  width: 18,
+  height: 112
+};
+const dockHideDelayMs = 150;
+const dockVisibilityPollMs = 75;
+const dockHeightRange = {
+  min: 280,
+  max: 720
+};
+
+const clampDockHeight = (height) => {
+  const numericHeight = Number(height);
+  if (!Number.isFinite(numericHeight)) {
+    return dockWindowSize.dock.height;
+  }
+
+  return Math.min(dockHeightRange.max, Math.max(dockHeightRange.min, Math.round(numericHeight)));
 };
 
 const isSafeHttpUrl = (value) => {
@@ -286,7 +308,7 @@ const flushKnownSessions = async () => {
 };
 
 const getAllAppWindows = () =>
-  [mainWindow, dockWindow, bubbleWindow].filter(
+  [mainWindow, dockWindow, bubbleWindow, dockTriggerWindow].filter(
     (windowInstance) => windowInstance && !windowInstance.isDestroyed()
   );
 
@@ -326,7 +348,8 @@ const destroyTray = () => {
 };
 
 const destroyAllWindows = () => {
-  for (const windowInstance of [bubbleWindow, dockWindow, mainWindow]) {
+  stopDockVisibilityController();
+  for (const windowInstance of [bubbleWindow, dockTriggerWindow, dockWindow, mainWindow]) {
     if (windowInstance && !windowInstance.isDestroyed()) {
       windowInstance.destroy();
     }
@@ -373,8 +396,12 @@ const markActiveServiceSeen = () => {
 };
 
 const getDockBounds = (ui = getAppState().ui) => {
-  const { dock: target, crossMargin } = dockWindowSize;
+  const { dock, crossMargin } = dockWindowSize;
   const workArea = screen.getPrimaryDisplay().workArea;
+  const target = {
+    ...dock,
+    height: clampDockHeight(ui.dockHeight)
+  };
 
   let x = workArea.x;
   let y = workArea.y + workArea.height - target.height - crossMargin;
@@ -406,6 +433,32 @@ const getDockBounds = (ui = getAppState().ui) => {
   };
 };
 
+const getDockTriggerBounds = (ui = getAppState().ui) => {
+  const dockBounds = getDockBounds(ui);
+  const workArea = screen.getPrimaryDisplay().workArea;
+  const rightAnchored = ui.dockCorner === "top-right" || ui.dockCorner === "bottom-right";
+  const height = Math.min(dockTriggerSize.height, dockBounds.height);
+  const y = Math.round(dockBounds.y + (dockBounds.height - height) / 2);
+
+  return {
+    width: dockTriggerSize.width,
+    height,
+    x: rightAnchored
+      ? workArea.x + workArea.width - dockTriggerSize.width
+      : workArea.x,
+    y
+  };
+};
+
+const isPointInBounds = (point, bounds) =>
+  Boolean(
+    bounds &&
+      point.x >= bounds.x &&
+      point.x < bounds.x + bounds.width &&
+      point.y >= bounds.y &&
+      point.y < bounds.y + bounds.height
+  );
+
 const getBubbleBounds = (ui = getAppState().ui) => {
   const { bubble, crossMargin } = dockWindowSize;
   const workArea = screen.getPrimaryDisplay().workArea;
@@ -434,6 +487,8 @@ const applyDockBounds = () => {
   }
 
   const bounds = getDockBounds();
+  dockWindow.setMinimumSize(bounds.width, bounds.height);
+  dockWindow.setMaximumSize(bounds.width, bounds.height);
   dockWindow.setBounds(bounds, true);
 };
 
@@ -444,6 +499,78 @@ const applyBubbleBounds = () => {
 
   const bounds = getBubbleBounds();
   bubbleWindow.setBounds(bounds, true);
+};
+
+const applyDockTriggerBounds = () => {
+  if (!dockTriggerWindow || dockTriggerWindow.isDestroyed()) {
+    return;
+  }
+
+  const bounds = getDockTriggerBounds();
+  dockTriggerWindow.setMinimumSize(bounds.width, bounds.height);
+  dockTriggerWindow.setMaximumSize(bounds.width, bounds.height);
+  dockTriggerWindow.setBounds(bounds, true);
+};
+
+const clearDockHideTimeout = () => {
+  if (dockHideTimeout) {
+    clearTimeout(dockHideTimeout);
+    dockHideTimeout = null;
+  }
+};
+
+const hideDockTriggerWindow = () => {
+  if (dockTriggerWindow && !dockTriggerWindow.isDestroyed() && dockTriggerWindow.isVisible()) {
+    dockTriggerWindow.hide();
+  }
+};
+
+const showDockTriggerWindow = () => {
+  if (!dockTriggerWindow || dockTriggerWindow.isDestroyed()) {
+    return;
+  }
+
+  applyDockTriggerBounds();
+  configureFloatingUtilityWindow(dockTriggerWindow);
+  if (!dockTriggerWindow.isVisible()) {
+    dockTriggerWindow.showInactive();
+  }
+};
+
+const showDockWindow = () => {
+  if (!dockWindow || dockWindow.isDestroyed()) {
+    return;
+  }
+
+  applyDockBounds();
+  configureFloatingUtilityWindow(dockWindow);
+  if (!dockWindow.isVisible()) {
+    dockWindow.showInactive();
+  }
+};
+
+const hideDockWindow = () => {
+  if (dockWindow && !dockWindow.isDestroyed() && dockWindow.isVisible()) {
+    dockWindow.hide();
+  }
+};
+
+const showBubbleWindow = () => {
+  if (!bubbleWindow || bubbleWindow.isDestroyed()) {
+    return;
+  }
+
+  applyBubbleBounds();
+  configureFloatingUtilityWindow(bubbleWindow);
+  if (!bubbleWindow.isVisible()) {
+    bubbleWindow.showInactive();
+  }
+};
+
+const hideBubbleWindow = () => {
+  if (bubbleWindow && !bubbleWindow.isDestroyed() && bubbleWindow.isVisible()) {
+    bubbleWindow.hide();
+  }
 };
 
 const configureFloatingUtilityWindow = (windowInstance) => {
@@ -458,27 +585,130 @@ const configureFloatingUtilityWindow = (windowInstance) => {
   });
 };
 
+const hideDockToTrigger = () => {
+  clearDockHideTimeout();
+  hideBubbleWindow();
+  hideDockWindow();
+  showDockTriggerWindow();
+};
+
+const revealDockFromTrigger = async () => {
+  clearDockHideTimeout();
+  const state = getAppState();
+
+  if (!dockWindow || dockWindow.isDestroyed()) {
+    await createDockWindow();
+  }
+
+  showDockWindow();
+  hideDockTriggerWindow();
+
+  if (state.ui.dockExpanded) {
+    if (!bubbleWindow || bubbleWindow.isDestroyed()) {
+      await createBubbleWindow();
+    }
+    showBubbleWindow();
+  } else {
+    hideBubbleWindow();
+  }
+};
+
+const shouldKeepDockRevealed = () => {
+  const state = getAppState();
+  if (state.ui.windowMode !== "dock") {
+    return false;
+  }
+
+  if (state.ui.dockExpanded) {
+    return true;
+  }
+
+  const point = screen.getCursorScreenPoint();
+  const triggerBounds = dockTriggerWindow && !dockTriggerWindow.isDestroyed() ? dockTriggerWindow.getBounds() : null;
+  const dockBounds = dockWindow && !dockWindow.isDestroyed() ? dockWindow.getBounds() : null;
+  const bubbleBounds = bubbleWindow && !bubbleWindow.isDestroyed() && bubbleWindow.isVisible() ? bubbleWindow.getBounds() : null;
+  const pointerInsideInteractiveSurface =
+    isPointInBounds(point, triggerBounds) ||
+    isPointInBounds(point, dockBounds) ||
+    isPointInBounds(point, bubbleBounds);
+
+  return (
+    pointerInsideInteractiveSurface ||
+    Boolean(dockWindow && !dockWindow.isDestroyed() && dockWindow.isFocused()) ||
+    Boolean(bubbleWindow && !bubbleWindow.isDestroyed() && bubbleWindow.isFocused())
+  );
+};
+
+const syncDockVisibility = async () => {
+  const state = getAppState();
+  if (state.ui.windowMode !== "dock") {
+    clearDockHideTimeout();
+    hideDockTriggerWindow();
+    hideDockWindow();
+    hideBubbleWindow();
+    return;
+  }
+
+  if (state.ui.dockExpanded) {
+    await revealDockFromTrigger();
+    return;
+  }
+
+  if (shouldKeepDockRevealed()) {
+    await revealDockFromTrigger();
+    return;
+  }
+
+  if (!dockHideTimeout) {
+    dockHideTimeout = setTimeout(() => {
+      dockHideTimeout = null;
+      if (!shouldKeepDockRevealed() && getAppState().ui.dockExpanded === false) {
+        hideDockToTrigger();
+      }
+    }, dockHideDelayMs);
+  }
+};
+
+const stopDockVisibilityController = () => {
+  clearDockHideTimeout();
+  if (dockVisibilityPoll) {
+    clearInterval(dockVisibilityPoll);
+    dockVisibilityPoll = null;
+  }
+};
+
+const startDockVisibilityController = () => {
+  if (dockVisibilityPoll) {
+    return;
+  }
+
+  dockVisibilityPoll = setInterval(() => {
+    syncDockVisibility().catch(() => {});
+  }, dockVisibilityPollMs);
+};
+
 const restoreDockWindows = () => {
   const state = getAppState();
   if (state.ui.windowMode !== "dock") {
     return;
   }
 
+  if (dockTriggerWindow && !dockTriggerWindow.isDestroyed()) {
+    applyDockTriggerBounds();
+    configureFloatingUtilityWindow(dockTriggerWindow);
+  }
+
   if (dockWindow && !dockWindow.isDestroyed()) {
     applyDockBounds();
     configureFloatingUtilityWindow(dockWindow);
-    if (!dockWindow.isVisible()) {
-      dockWindow.showInactive();
-    }
   }
 
-  if (state.ui.dockExpanded && bubbleWindow && !bubbleWindow.isDestroyed()) {
+  if (bubbleWindow && !bubbleWindow.isDestroyed()) {
     applyBubbleBounds();
     configureFloatingUtilityWindow(bubbleWindow);
-    if (!bubbleWindow.isVisible()) {
-      bubbleWindow.showInactive();
-    }
   }
+
+  syncDockVisibility().catch(() => {});
 };
 
 const attachSharedWindowBehavior = (windowInstance) => {
@@ -499,6 +729,16 @@ const attachSharedWindowBehavior = (windowInstance) => {
   });
   windowInstance.on("focus", () => {
     markActiveServiceSeen();
+    syncDockVisibility().catch(() => {});
+  });
+  windowInstance.on("blur", () => {
+    syncDockVisibility().catch(() => {});
+  });
+  windowInstance.on("show", () => {
+    syncDockVisibility().catch(() => {});
+  });
+  windowInstance.on("hide", () => {
+    syncDockVisibility().catch(() => {});
   });
 };
 
@@ -620,13 +860,14 @@ const createMainWindow = async () => {
 
 const createDockWindow = async () => {
   const bounds = getDockBounds();
+  const dockHeight = clampDockHeight(getAppState().ui.dockHeight);
 
   dockWindow = new BrowserWindow({
     ...bounds,
     minWidth: dockWindowSize.dock.width,
-    minHeight: 420,
+    minHeight: dockHeight,
     maxWidth: dockWindowSize.dock.width,
-    maxHeight: dockWindowSize.dock.height,
+    maxHeight: dockHeight,
     title: "Comms Hub Dock",
     icon: appIcon,
     frame: false,
@@ -634,7 +875,8 @@ const createDockWindow = async () => {
     fullscreenable: false,
     alwaysOnTop: true,
     skipTaskbar: true,
-    backgroundColor: "#08111d",
+    transparent: true,
+    backgroundColor: "#00000000",
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -653,6 +895,42 @@ const createDockWindow = async () => {
     dockWindow = null;
   });
   await loadRendererIntoWindow(dockWindow, "dock");
+};
+
+const createDockTriggerWindow = async () => {
+  const bounds = getDockTriggerBounds();
+
+  dockTriggerWindow = new BrowserWindow({
+    ...bounds,
+    minWidth: bounds.width,
+    minHeight: bounds.height,
+    maxWidth: bounds.width,
+    maxHeight: bounds.height,
+    title: "Comms Hub Dock Trigger",
+    icon: appIcon,
+    frame: false,
+    resizable: false,
+    fullscreenable: false,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    transparent: true,
+    backgroundColor: "#00000000",
+    webPreferences: {
+      preload: path.join(__dirname, "preload.js"),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false,
+      webSecurity: true,
+      allowRunningInsecureContent: false
+    }
+  });
+
+  attachSharedWindowBehavior(dockTriggerWindow);
+  configureFloatingUtilityWindow(dockTriggerWindow);
+  dockTriggerWindow.on("closed", () => {
+    dockTriggerWindow = null;
+  });
+  await loadRendererIntoWindow(dockTriggerWindow, "trigger");
 };
 
 const createBubbleWindow = async () => {
@@ -700,6 +978,12 @@ const syncWindowMode = async () => {
   }
 
   if (windowMode === "dock") {
+    if (!dockTriggerWindow || dockTriggerWindow.isDestroyed()) {
+      await createDockTriggerWindow();
+    } else {
+      applyDockTriggerBounds();
+    }
+
     if (!dockWindow || dockWindow.isDestroyed()) {
       await createDockWindow();
     } else {
@@ -711,18 +995,17 @@ const syncWindowMode = async () => {
         await createBubbleWindow();
       } else {
         applyBubbleBounds();
-        bubbleWindow.show();
       }
-    } else if (bubbleWindow && !bubbleWindow.isDestroyed()) {
-      bubbleWindow.hide();
     }
 
+    startDockVisibilityController();
+    await syncDockVisibility();
     mainWindow.hide();
-    dockWindow.show();
-    dockWindow.focus();
     return;
   }
 
+  stopDockVisibilityController();
+  hideDockTriggerWindow();
   if (dockWindow && !dockWindow.isDestroyed()) {
     dockWindow.hide();
   }
@@ -843,10 +1126,26 @@ ipcMain.handle("ui:set-dock-corner", (_event, corner) => {
   const state = setUiState({
     dockCorner: supportedCorner.has(corner) ? corner : "bottom-left"
   });
+  applyDockTriggerBounds();
   applyDockBounds();
   applyBubbleBounds();
   broadcastState(state);
   updateTrayMenu();
+  syncDockVisibility().catch(() => {});
+  return state;
+});
+
+ipcMain.handle("ui:set-dock-height", (_event, height) => {
+  const state = setUiState({
+    dockHeight: clampDockHeight(height)
+  });
+
+  applyDockTriggerBounds();
+  applyDockBounds();
+  applyBubbleBounds();
+  broadcastState(state);
+  updateTrayMenu();
+  syncDockVisibility().catch(() => {});
   return state;
 });
 
@@ -858,12 +1157,9 @@ ipcMain.handle("ui:set-dock-expanded", async (_event, expanded) => {
         await createBubbleWindow();
       } else {
         applyBubbleBounds();
-        bubbleWindow.show();
-        bubbleWindow.focus();
       }
-    } else if (bubbleWindow && !bubbleWindow.isDestroyed()) {
-      bubbleWindow.hide();
     }
+    await syncDockVisibility();
   }
   broadcastState(state);
   updateTrayMenu();

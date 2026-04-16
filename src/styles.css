@@ -8,6 +8,13 @@
   color: #e5eefc;
 }
 
+:root[data-window-mode="dock"],
+body[data-window-mode="dock"],
+:root[data-window-mode="trigger"],
+body[data-window-mode="trigger"] {
+  background: transparent;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -41,8 +48,7 @@ input {
   height: 100%;
   min-height: 0;
   background: transparent;
-  opacity: 0.46;
-  transition: opacity 180ms ease, transform 180ms ease;
+  opacity: 1;
 }
 
 .bubble-shell {
@@ -53,8 +59,31 @@ input {
   transition: opacity 180ms ease, transform 180ms ease;
 }
 
-.dock-shell:hover,
-.dock-shell:focus-within,
+.dock-trigger-shell {
+  width: 100%;
+  height: 100%;
+  background: transparent;
+}
+
+.dock-trigger-tab {
+  width: 100%;
+  height: 100%;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.015));
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.025);
+  backdrop-filter: blur(16px) saturate(135%);
+}
+
+.dock-trigger-shell.left-anchored .dock-trigger-tab {
+  border-left: 0;
+  border-radius: 0 14px 14px 0;
+}
+
+.dock-trigger-shell.right-anchored .dock-trigger-tab {
+  border-right: 0;
+  border-radius: 14px 0 0 14px;
+}
+
 .bubble-shell:hover,
 .bubble-shell:focus-within {
   opacity: 0.82;
@@ -91,15 +120,16 @@ input {
 
 .dock-rail {
   width: 68px;
-  border: 1px solid rgba(148, 163, 184, 0.03);
-  background: rgba(8, 15, 28, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.015));
   display: flex;
   flex-direction: column;
   align-items: center;
   padding: 8px 6px 10px;
   min-height: 0;
   -webkit-app-region: drag;
-  backdrop-filter: blur(4px);
+  backdrop-filter: blur(16px) saturate(135%);
+  box-shadow: 0 8px 26px rgba(15, 23, 42, 0.025);
 }
 
 .dock-shell.left-anchored .dock-rail {
@@ -137,18 +167,19 @@ input {
   width: 48px;
   height: 48px;
   border-radius: 16px;
-  border: 1px solid transparent;
-  background: rgba(15, 23, 42, 0.14);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: rgba(255, 255, 255, 0.028);
   display: grid;
   place-items: center;
   padding: 0;
   cursor: pointer;
   -webkit-app-region: no-drag;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.02);
 }
 
 .dock-rail-button.active {
-  background: linear-gradient(180deg, rgba(14, 165, 233, 0.08), rgba(37, 99, 235, 0.06));
-  border-color: rgba(125, 211, 252, 0.1);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(186, 230, 253, 0.08));
+  border-color: rgba(255, 255, 255, 0.22);
 }
 
 .dock-add-button {
@@ -161,15 +192,16 @@ input {
   width: 48px;
   min-height: 30px;
   border-radius: 12px;
-  border: 1px solid rgba(148, 163, 184, 0.05);
-  background: rgba(15, 23, 42, 0.08);
-  color: rgba(220, 231, 248, 0.58);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: rgba(255, 255, 255, 0.022);
+  color: rgba(236, 245, 255, 0.52);
   font-size: 0.62rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   padding: 6px 4px;
   cursor: pointer;
   -webkit-app-region: no-drag;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.02);
 }
 
 .dock-bubble {
@@ -529,6 +561,39 @@ input {
   box-shadow: 0 12px 24px rgba(8, 15, 29, 0.35);
 }
 
+.dock-shell .service-icon-wrap {
+  opacity: 0.46;
+  transition: opacity 180ms ease, transform 180ms ease, filter 180ms ease;
+}
+
+.dock-shell .service-icon {
+  opacity: 0.78;
+  filter: saturate(0.88);
+  transition: opacity 180ms ease, filter 180ms ease;
+}
+
+.dock-shell .badge-pill {
+  opacity: 0.34;
+  background: rgba(244, 63, 94, 0.56);
+  box-shadow: 0 4px 12px rgba(244, 63, 94, 0.16);
+  transition: opacity 180ms ease, background 180ms ease, box-shadow 180ms ease;
+}
+
+.dock-shell .dock-rail-button.active .service-icon-wrap {
+  opacity: 1;
+}
+
+.dock-shell .dock-rail-button.active .service-icon {
+  opacity: 1;
+  filter: saturate(1);
+}
+
+.dock-shell .dock-rail-button.active .badge-pill {
+  opacity: 0.92;
+  background: rgba(244, 63, 94, 0.88);
+  box-shadow: 0 6px 16px rgba(244, 63, 94, 0.22);
+}
+
 .service-icon-large {
   width: 64px;
   height: 64px;
@@ -676,6 +741,16 @@ input {
 
 .setting-row + .setting-row {
   border-top: 1px solid rgba(148, 163, 184, 0.1);
+}
+
+.setting-number-input {
+  width: 92px;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  background: rgba(15, 23, 42, 0.86);
+  padding: 10px 12px;
+  color: #f8fbff;
+  text-align: right;
 }
 
 .setting-note {
