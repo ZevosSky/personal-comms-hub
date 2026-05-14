@@ -96,6 +96,22 @@ const dockHeightRange = {
   max: 720
 };
 
+const writeStartupDiagnostic = (message, error) => {
+  const details = error instanceof Error ? `${error.stack || error.message}` : String(error ?? "");
+  const entry = `[${new Date().toISOString()}] ${message}${details ? `\n${details}` : ""}\n\n`;
+  console.error(message, error);
+
+  try {
+    const diagnosticsDir = app.isReady()
+      ? app.getPath("userData")
+      : path.join(app.getPath("home"), ".config", "Comms Hub");
+    fs.mkdirSync(diagnosticsDir, { recursive: true });
+    fs.appendFileSync(path.join(diagnosticsDir, "startup.log"), entry, "utf8");
+  } catch {
+    // Keep startup error handling best-effort so diagnostics never cause a second crash.
+  }
+};
+
 const clampDockHeight = (height) => {
   const numericHeight = Number(height);
   if (!Number.isFinite(numericHeight)) {
@@ -276,7 +292,7 @@ const configureSessionPermissions = (targetSession) => {
 
 const configureKnownSessions = () => {
   configureSessionPermissions(session.defaultSession);
-  for (const service of getAppState().services) {
+  for (const service of getAppState().services.filter((item) => item.isEnabled)) {
     if (service.sessionPartition) {
       configureSessionPermissions(session.fromPartition(service.sessionPartition));
     }
@@ -285,6 +301,7 @@ const configureKnownSessions = () => {
 
 const getKnownServiceSessions = () =>
   getAppState().services
+    .filter((service) => service.isEnabled)
     .map((service) => service.sessionPartition)
     .filter(Boolean)
     .map((partition) => session.fromPartition(partition));
@@ -382,6 +399,19 @@ const broadcastState = (state) => {
   for (const windowInstance of getAllAppWindows()) {
     windowInstance.webContents.send("state:updated", state);
   }
+};
+
+const requestActiveWebviewRefresh = () => {
+  const { activeServiceId } = getAppState().ui;
+  if (!activeServiceId) {
+    return false;
+  }
+
+  for (const windowInstance of getAllAppWindows()) {
+    windowInstance.webContents.send("webview:refresh-active", { activeServiceId });
+  }
+
+  return true;
 };
 
 const markActiveServiceSeen = () => {
@@ -624,11 +654,12 @@ const shouldKeepDockRevealed = () => {
   }
 
   const point = screen.getCursorScreenPoint();
-  const triggerBounds = dockTriggerWindow && !dockTriggerWindow.isDestroyed() ? dockTriggerWindow.getBounds() : null;
-  const dockBounds = dockWindow && !dockWindow.isDestroyed() ? dockWindow.getBounds() : null;
+  const dockBounds =
+    dockWindow && !dockWindow.isDestroyed() && dockWindow.isVisible()
+      ? dockWindow.getBounds()
+      : null;
   const bubbleBounds = bubbleWindow && !bubbleWindow.isDestroyed() && bubbleWindow.isVisible() ? bubbleWindow.getBounds() : null;
   const pointerInsideInteractiveSurface =
-    isPointInBounds(point, triggerBounds) ||
     isPointInBounds(point, dockBounds) ||
     isPointInBounds(point, bubbleBounds);
 
@@ -1088,8 +1119,10 @@ ipcMain.handle("services:reorder", (_event, serviceIds) => {
 });
 
 ipcMain.handle("ui:set-active-service", (_event, serviceId) => {
-  setUiState({ activeServiceId: serviceId });
-  const seenState = markServiceNotificationsSeen(serviceId);
+  const target = getAppState().services.find((service) => service.id === serviceId && service.isEnabled);
+  const nextServiceId = target?.id ?? getAppState().services.find((service) => service.isEnabled)?.id ?? null;
+  setUiState({ activeServiceId: nextServiceId });
+  const seenState = markServiceNotificationsSeen(nextServiceId);
   broadcastState(seenState);
   return seenState;
 });
@@ -1158,13 +1191,32 @@ ipcMain.handle("ui:set-dock-expanded", async (_event, expanded) => {
       } else {
         applyBubbleBounds();
       }
+      await syncDockVisibility();
+    } else {
+      hideDockToTrigger();
     }
-    await syncDockVisibility();
   }
   broadcastState(state);
   updateTrayMenu();
   return state;
 });
+
+ipcMain.handle("ui:open-dock-from-trigger", async () => {
+  const state = setUiState({
+    windowMode: "dock",
+    dockExpanded: true
+  });
+  broadcastState(state);
+
+  if (!dockTriggerWindow || dockTriggerWindow.isDestroyed()) {
+    await createDockTriggerWindow();
+  }
+  await revealDockFromTrigger();
+  updateTrayMenu();
+  return getAppState();
+});
+
+ipcMain.handle("webviews:refresh-active", () => requestActiveWebviewRefresh());
 
 ipcMain.handle("icons:upload", async (event) => {
   const parentWindow = BrowserWindow.fromWebContents(event.sender) ?? mainWindow ?? dockWindow ?? undefined;
@@ -1223,7 +1275,10 @@ const recordNotificationEvent = (payload) => {
 
 ipcMain.handle("notifications:service-event", (_event, payload) => {
   const state = getAppState();
-  const service = state.services.find((item) => item.id === payload.serviceId);
+  const service = state.services.find((item) => item.id === payload.serviceId && item.isEnabled);
+  if (payload.serviceId && !service) {
+    return false;
+  }
 
   recordNotificationEvent({
     serviceId: payload.serviceId,
@@ -1279,9 +1334,17 @@ app.whenReady().then(() => {
     restoreDockWindows();
   });
   syncWindowMode().catch((error) => {
-    console.error("Failed to create main window.", error);
+    writeStartupDiagnostic("Failed to create main window.", error);
     app.quit();
   });
+});
+
+process.on("uncaughtException", (error) => {
+  writeStartupDiagnostic("Uncaught exception during Comms Hub startup/runtime.", error);
+});
+
+process.on("unhandledRejection", (reason) => {
+  writeStartupDiagnostic("Unhandled rejection during Comms Hub startup/runtime.", reason);
 });
 
 app.on("before-quit", (event) => {

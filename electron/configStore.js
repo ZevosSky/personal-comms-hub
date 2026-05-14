@@ -288,8 +288,10 @@ export const getAppState = () => {
   const services = mergeBuiltIns(storedServices).map((service) => normalizeService(service, service));
   const rawUi = store.get("ui");
   const notificationHistory = store.get("notificationHistory", []);
+  const fallbackActiveServiceId = services.find((service) => service.isEnabled)?.id ?? null;
+  const storedActiveService = services.find((service) => service.id === rawUi.activeServiceId);
   const ui = {
-    activeServiceId: rawUi.activeServiceId ?? services[0]?.id ?? null,
+    activeServiceId: storedActiveService?.isEnabled ? storedActiveService.id : fallbackActiveServiceId,
     notificationsEnabled: rawUi.notificationsEnabled ?? true,
     memorySaverEnabled: rawUi.memorySaverEnabled ?? true,
     sidebarCollapsed: rawUi.sidebarCollapsed ?? false,
@@ -327,7 +329,7 @@ export const upsertService = (partialService) => {
   const activeServiceId =
     !nextService.isEnabled && state.ui.activeServiceId === id
       ? services.find((service) => service.id !== id && service.isEnabled)?.id ?? null
-      : shouldSwitchToNewApp
+      : shouldSwitchToNewApp && nextService.isEnabled
         ? id
         : state.ui.activeServiceId;
 

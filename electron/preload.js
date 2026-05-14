@@ -13,6 +13,8 @@ contextBridge.exposeInMainWorld("commsApp", {
   setDockCorner: (corner) => ipcRenderer.invoke("ui:set-dock-corner", corner),
   setDockHeight: (height) => ipcRenderer.invoke("ui:set-dock-height", height),
   setDockExpanded: (expanded) => ipcRenderer.invoke("ui:set-dock-expanded", expanded),
+  openDockFromTrigger: () => ipcRenderer.invoke("ui:open-dock-from-trigger"),
+  refreshActiveWebview: () => ipcRenderer.invoke("webviews:refresh-active"),
   uploadIcon: () => ipcRenderer.invoke("icons:upload"),
   openExternal: (url) => ipcRenderer.invoke("shell:open-external", url),
   checkForUpdates: () => ipcRenderer.invoke("updates:check"),
@@ -25,5 +27,10 @@ contextBridge.exposeInMainWorld("commsApp", {
     const listener = (_event, state) => callback(state);
     ipcRenderer.on("state:updated", listener);
     return () => ipcRenderer.removeListener("state:updated", listener);
+  },
+  onRefreshActiveWebview: (callback) => {
+    const listener = (_event, payload) => callback(payload);
+    ipcRenderer.on("webview:refresh-active", listener);
+    return () => ipcRenderer.removeListener("webview:refresh-active", listener);
   }
 });

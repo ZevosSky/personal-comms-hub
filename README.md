@@ -9,7 +9,7 @@ Comms Hub is an Electron + React desktop app for keeping several web-based messa
 - Node.js 20+ recommended
 - npm
 - Windows for the current Windows installer flow
-- Linux or WSL with Linux-native `node`/`npm` if you want to build the Linux AppImage
+- Linux or WSL with Linux-native `node`/`npm` if you want to build Linux packages
 
 ### Install Dependencies
 
@@ -134,12 +134,12 @@ build.bat dist:win
 The installer is generated at:
 
 ```bash
-release/Comms Hub Setup 1.2.0.exe
+release/Comms Hub Setup <version>.exe
 ```
 
-### Linux AppImage
+### Linux Packages
 
-Build the Linux AppImage:
+Build the Linux AppImage and tar.gz fallback archive:
 
 ```bash
 npm run dist:linux
@@ -156,6 +156,10 @@ Note:
 - prefer `npm run dist:linux` over raw `npx electron-builder --linux`
 - this works best on Linux or in WSL using Linux-native `node` and `npm`
 - if WSL is accidentally using Windows `node`, the AppImage step can fail with Windows-path tool errors
+- AppImage launch can fail on desktops without FUSE/AppImage support
+- use the `tar.gz` artifact as the desktop-environment-neutral fallback on KDE Plasma, GNOME, Xfce, or other Linux desktops
+- if Linux launch fails, run the AppImage or unpacked archive executable from a terminal to capture the startup error
+- startup failures are also appended to `startup.log` in the app config directory
 
 ### Generic Packaging Command
 
@@ -180,14 +184,15 @@ build.bat dist
 This repo includes a GitHub Actions workflow at [.github/workflows/build-installers.yml](C:/Users/Gary%20Yang/Documents/CommsApp/.github/workflows/build-installers.yml) that:
 
 - builds the Windows installer on `windows-latest`
-- builds the Linux AppImage on `ubuntu-latest`
+- builds the Linux AppImage and tar.gz fallback on `ubuntu-latest`
 - runs smoke checks on both Windows and Linux first
-- uploads both outputs as workflow artifacts
-- publishes a GitHub Release automatically only for version tags like `v1.2.0`
+- uploads installer outputs as workflow artifacts
+- publishes a GitHub Release automatically only for version tags like `v1.2.2`
 
 It runs on:
 
 - pushes to `main` or `master`
+- pushes of version tags like `v1.2.2`
 - pull requests
 - manual `workflow_dispatch`
 
@@ -215,10 +220,10 @@ Example:
 
 ```bash
 git add package.json
-git commit -m "Bump version to 1.2.0"
-git tag v1.2.0
+git commit -m "Bump version to 1.2.2"
+git tag v1.2.2
 git push origin main
-git push origin v1.2.0
+git push origin v1.2.2
 ```
 
 What happens next:

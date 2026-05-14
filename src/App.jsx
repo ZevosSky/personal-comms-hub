@@ -107,7 +107,7 @@ const ServiceFormModal = ({
           checked={form.isEnabled}
           onChange={(event) => onChange({ isEnabled: event.target.checked })}
         />
-        <span>Show this app in the sidebar</span>
+        <span>Show this app on this device</span>
       </label>
 
       <div className="field">
@@ -136,7 +136,7 @@ const ServiceFormModal = ({
             Remove app
           </button>
         ) : (
-          <span className="modal-hint">Built-in apps can be edited but not removed.</span>
+          <span className="modal-hint">Built-in apps can be hidden and restored later.</span>
         )}
         <button className="primary-button" onClick={onSave} type="button">
           Save app
@@ -165,6 +165,15 @@ const dockHeightRange = {
   max: 720
 };
 
+const guestLayoutRefreshScript = `
+  (() => {
+    window.dispatchEvent(new Event("resize"));
+    window.dispatchEvent(new Event("focus"));
+    document.documentElement?.getBoundingClientRect?.();
+    document.body?.getBoundingClientRect?.();
+  })();
+`;
+
 function App() {
   const [appState, setAppState] = useState(null);
   const [modalForm, setModalForm] = useState(null);
@@ -177,6 +186,7 @@ function App() {
   const [guestPreloadPath, setGuestPreloadPath] = useState("");
   const notifiedCountsRef = useRef({});
   const webviewRefs = useRef({});
+  const layoutRefreshFrameRef = useRef(null);
 
   useEffect(() => {
     let unsubscribe = null;
@@ -230,6 +240,10 @@ function App() {
 
   const services = useMemo(
     () => appState?.services?.filter((service) => service.isEnabled) ?? [],
+    [appState]
+  );
+  const hiddenServices = useMemo(
+    () => appState?.services?.filter((service) => !service.isEnabled) ?? [],
     [appState]
   );
   const activeServiceId =
@@ -294,6 +308,18 @@ function App() {
   }, [activeServiceId]);
 
   useEffect(() => {
+    const enabledIds = new Set(services.map((service) => service.id));
+    setLoadedServiceIds((current) => current.filter((id) => enabledIds.has(id)));
+
+    for (const id of Object.keys(webviewRefs.current)) {
+      if (!enabledIds.has(id)) {
+        webviewRefs.current[id]?.__cleanup?.();
+        delete webviewRefs.current[id];
+      }
+    }
+  }, [services]);
+
+  useEffect(() => {
     if (!keepAliveServiceIds.length) {
       return;
     }
@@ -304,6 +330,116 @@ function App() {
       return [...next];
     });
   }, [keepAliveServiceIds]);
+
+  const refreshActiveWebviewLayout = () => {
+    const webview = activeServiceId ? webviewRefs.current[activeServiceId] : null;
+    if (!webview) {
+      return false;
+    }
+
+    const rect = webview.getBoundingClientRect();
+    if (!rect.width || !rect.height) {
+      return false;
+    }
+
+    const previousWidth = webview.style.width;
+    const previousHeight = webview.style.height;
+    webview.classList.add("layout-refreshing");
+    webview.style.width = `${Math.max(1, Math.round(rect.width))}px`;
+    webview.style.height = `${Math.max(1, Math.round(rect.height))}px`;
+    webview.getBoundingClientRect();
+
+    requestAnimationFrame(() => {
+      webview.style.width = previousWidth;
+      webview.style.height = previousHeight;
+      webview.getBoundingClientRect();
+
+      if (typeof webview.executeJavaScript === "function") {
+        webview.executeJavaScript(guestLayoutRefreshScript, false).catch(() => {});
+      }
+
+      setTimeout(() => {
+        webview.classList.remove("layout-refreshing");
+      }, 120);
+    });
+
+    return true;
+  };
+
+  const scheduleActiveWebviewLayoutRefresh = () => {
+    if (layoutRefreshFrameRef.current) {
+      cancelAnimationFrame(layoutRefreshFrameRef.current);
+    }
+
+    layoutRefreshFrameRef.current = requestAnimationFrame(() => {
+      layoutRefreshFrameRef.current = null;
+      refreshActiveWebviewLayout();
+    });
+  };
+
+  const reloadActiveWebview = () => {
+    const canRefreshInThisRenderer =
+      rendererMode === "bubble" ||
+      (rendererMode === "full" && appState?.ui?.windowMode !== "dock");
+    if (!canRefreshInThisRenderer) {
+      return false;
+    }
+
+    const webview = activeServiceId ? webviewRefs.current[activeServiceId] : null;
+    if (!webview) {
+      return false;
+    }
+
+    refreshActiveWebviewLayout();
+    if (typeof webview.reload === "function") {
+      webview.reload();
+      return true;
+    }
+
+    webview.src = webview.src;
+    return true;
+  };
+
+  useEffect(() => {
+    scheduleActiveWebviewLayoutRefresh();
+  }, [
+    activeServiceId,
+    renderedServices,
+    dockExpanded,
+    dockCorner,
+    appState?.ui?.dockHeight,
+    appState?.ui?.sidebarCollapsed
+  ]);
+
+  useEffect(() => {
+    window.addEventListener("resize", scheduleActiveWebviewLayoutRefresh);
+    return () => {
+      window.removeEventListener("resize", scheduleActiveWebviewLayoutRefresh);
+      if (layoutRefreshFrameRef.current) {
+        cancelAnimationFrame(layoutRefreshFrameRef.current);
+      }
+    };
+  }, [activeServiceId]);
+
+  useEffect(() => {
+    const activeWebview = activeServiceId ? webviewRefs.current[activeServiceId] : null;
+    const container = activeWebview?.parentElement;
+    if (!container || typeof ResizeObserver === "undefined") {
+      return undefined;
+    }
+
+    const observer = new ResizeObserver(scheduleActiveWebviewLayoutRefresh);
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, [activeServiceId, renderedServices]);
+
+  useEffect(() => {
+    return window.commsApp.onRefreshActiveWebview?.((payload) => {
+      if (!payload?.activeServiceId || payload.activeServiceId === activeServiceId) {
+        reloadActiveWebview();
+      }
+    });
+  }, [activeServiceId, renderedServices]);
 
   useEffect(() => {
     renderedServices.forEach((service) => {
@@ -320,6 +456,17 @@ function App() {
         setStatusMessage(`Unable to load ${service.name}. Check the URL or site access.`);
       };
 
+      const onStartLoading = () => {
+        webview.dataset.loading = "true";
+      };
+
+      const onReadyForLayout = () => {
+        delete webview.dataset.loading;
+        if (service.id === activeServiceId) {
+          scheduleActiveWebviewLayoutRefresh();
+        }
+      };
+
       const onIpcMessage = (event) => {
         if (event.channel !== "comms-app-notification") {
           return;
@@ -330,13 +477,22 @@ function App() {
 
       webview.addEventListener("page-title-updated", onTitle);
       webview.addEventListener("did-fail-load", onFailLoad);
+      webview.addEventListener("did-start-loading", onStartLoading);
+      webview.addEventListener("did-stop-loading", onReadyForLayout);
+      webview.addEventListener("did-finish-load", onReadyForLayout);
+      webview.addEventListener("dom-ready", onReadyForLayout);
       webview.addEventListener("ipc-message", onIpcMessage);
       webview.dataset.bound = "true";
       webview.__cleanup = () => {
         webview.removeEventListener("page-title-updated", onTitle);
         webview.removeEventListener("did-fail-load", onFailLoad);
+        webview.removeEventListener("did-start-loading", onStartLoading);
+        webview.removeEventListener("did-stop-loading", onReadyForLayout);
+        webview.removeEventListener("did-finish-load", onReadyForLayout);
+        webview.removeEventListener("dom-ready", onReadyForLayout);
         webview.removeEventListener("ipc-message", onIpcMessage);
         delete webview.dataset.bound;
+        delete webview.dataset.loading;
       };
     });
 
@@ -375,14 +531,19 @@ function App() {
     }
 
     const existing = appState.services.find((service) => service.id === modalForm.id);
+    const isHidingBuiltIn = existing?.isBuiltIn && modalForm.isEnabled === false;
     const nextState = await window.commsApp.saveService({
       ...existing,
       ...modalForm,
-      url: normalizedUrl
+      url: normalizedUrl,
+      keepAliveInBackground: isHidingBuiltIn ? false : (modalForm.keepAliveInBackground ?? existing?.keepAliveInBackground)
     });
+    if (isHidingBuiltIn) {
+      setLoadedServiceIds((current) => current.filter((id) => id !== existing.id));
+    }
     setAppState(nextState);
     setModalForm(null);
-    setStatusMessage(`Saved ${modalForm.name}.`);
+    setStatusMessage(isHidingBuiltIn ? `Hid ${modalForm.name} on this device.` : `Saved ${modalForm.name}.`);
   };
 
   const handleDelete = async () => {
@@ -409,6 +570,36 @@ function App() {
     const nextState = await window.commsApp.removeService(serviceId);
     setAppState(nextState);
     setStatusMessage(`Removed ${target.name}.`);
+  };
+
+  const hideBuiltInService = async (serviceId) => {
+    const target = appState.services.find((service) => service.id === serviceId);
+    if (!target?.isBuiltIn) {
+      return;
+    }
+
+    const nextState = await window.commsApp.saveService({
+      ...target,
+      isEnabled: false,
+      keepAliveInBackground: false
+    });
+    setLoadedServiceIds((current) => current.filter((id) => id !== serviceId));
+    setAppState(nextState);
+    setStatusMessage(`Hid ${target.name} on this device.`);
+  };
+
+  const restoreService = async (serviceId) => {
+    const target = appState.services.find((service) => service.id === serviceId);
+    if (!target) {
+      return;
+    }
+
+    const nextState = await window.commsApp.saveService({
+      ...target,
+      isEnabled: true
+    });
+    setAppState(nextState);
+    setStatusMessage(`Restored ${target.name}.`);
   };
 
   const moveService = async (serviceId, direction) => {
@@ -472,6 +663,20 @@ function App() {
   const setDockHeight = async (height) => {
     const nextState = await window.commsApp.setDockHeight(height);
     setAppState(nextState);
+  };
+
+  const refreshVisibleWebview = async () => {
+    if (reloadActiveWebview()) {
+      setStatusMessage(`Refreshing ${activeService?.name ?? "active app"}.`);
+      return;
+    }
+
+    const requested = await window.commsApp.refreshActiveWebview();
+    setStatusMessage(
+      requested
+        ? `Refreshing ${activeService?.name ?? "active app"}.`
+        : "No active app is available to refresh."
+    );
   };
 
   const handleUploadIcon = async () => {
@@ -591,10 +796,21 @@ function App() {
     }
   };
 
+  const openDockFromTrigger = async () => {
+    const nextState = await window.commsApp.openDockFromTrigger();
+    setAppState(nextState);
+  };
+
   if (isTriggerMode) {
     return (
       <div className={`dock-trigger-shell ${isRightAnchored ? "right-anchored" : "left-anchored"} ${dockCorner}`}>
-        <div className="dock-trigger-tab" />
+        <button
+          aria-label="Open Comms Hub dock"
+          className="dock-trigger-tab"
+          onClick={openDockFromTrigger}
+          title="Open Comms Hub dock"
+          type="button"
+        />
       </div>
     );
   }
@@ -637,6 +853,9 @@ function App() {
               ))}
             </div>
             <div className="dock-rail-footer">
+              <button className="dock-footer-button" onClick={refreshVisibleWebview} title="Refresh active app" type="button">
+                Reload
+              </button>
               <button className="dock-footer-button" onClick={cycleDockCorner} title="Move dock corner" type="button">
                 Corner
               </button>
@@ -679,11 +898,16 @@ function App() {
                 ref={(node) => {
                   if (node) {
                     webviewRefs.current[service.id] = node;
+                    if (service.id === activeServiceId) {
+                      scheduleActiveWebviewLayoutRefresh();
+                    }
                   } else {
+                    webviewRefs.current[service.id]?.__cleanup?.();
                     delete webviewRefs.current[service.id];
                   }
                 }}
                 className={`service-webview ${service.id === activeServiceId ? "visible" : "hidden"}`}
+                data-service-id={service.id}
                 src={service.url}
                 partition={service.useDefaultSession ? undefined : service.sessionPartition}
                 preload={guestPreloadPath}
@@ -785,9 +1009,14 @@ function App() {
             </div>
             <div className="sidebar-top-actions">
               {activeService ? (
-                <button className="ghost-button" onClick={() => openEditModal(activeService)} type="button">
-                  Edit
-                </button>
+                <>
+                  <button className="ghost-button" onClick={refreshVisibleWebview} type="button">
+                    Refresh
+                  </button>
+                  <button className="ghost-button" onClick={() => openEditModal(activeService)} type="button">
+                    Edit
+                  </button>
+                </>
               ) : null}
             </div>
           </div>
@@ -839,7 +1068,15 @@ function App() {
                   >
                     Move down
                   </button>
-                  {!appState.services.find((service) => service.id === activeService.id)?.isBuiltIn ? (
+                  {appState.services.find((service) => service.id === activeService.id)?.isBuiltIn ? (
+                    <button
+                      className="danger-button service-remove-button"
+                      onClick={() => hideBuiltInService(activeService.id)}
+                      type="button"
+                    >
+                      Hide on this device
+                    </button>
+                  ) : (
                     <button
                       className="danger-button service-remove-button"
                       onClick={() => handleRemoveService(activeService.id)}
@@ -847,7 +1084,7 @@ function App() {
                     >
                       Remove app
                     </button>
-                  ) : null}
+                  )}
                 </div>
               </div>
 
@@ -1018,6 +1255,29 @@ function App() {
                 Controls the vertical size of the floating dock in pixels.
               </p>
             </div>
+            {hiddenServices.length ? (
+              <div className="sidebar-section hidden-apps-section">
+                <p className="eyebrow">Hidden apps</p>
+                <div className="mini-service-list">
+                  {hiddenServices.map((service) => (
+                    <div className="mini-service-row hidden-service-row" key={service.id}>
+                      <img src={service.iconSource} alt="" className="mini-service-icon" />
+                      <span className="mini-service-copy">
+                        <strong>{service.name}</strong>
+                        <small>Inactive on this device</small>
+                      </span>
+                      <button
+                        className="compact-action-button"
+                        onClick={() => restoreService(service.id)}
+                        type="button"
+                      >
+                        Restore
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
           </div>
         </aside>
       ) : null}
@@ -1039,11 +1299,16 @@ function App() {
                 ref={(node) => {
                   if (node) {
                     webviewRefs.current[service.id] = node;
+                    if (service.id === activeServiceId) {
+                      scheduleActiveWebviewLayoutRefresh();
+                    }
                   } else {
+                    webviewRefs.current[service.id]?.__cleanup?.();
                     delete webviewRefs.current[service.id];
                   }
                 }}
                 className={`service-webview ${service.id === activeServiceId ? "visible" : "hidden"}`}
+                data-service-id={service.id}
                 src={service.url}
                 partition={service.useDefaultSession ? undefined : service.sessionPartition}
                 preload={guestPreloadPath}

@@ -59,9 +59,10 @@ jobs:
               release/latest.yml
           - os: ubuntu-latest
             label: Linux
-            package_command: npx electron-builder --linux AppImage --x64 --publish never
+            package_command: npx electron-builder --linux AppImage tar.gz --x64 --publish never
             artifact_glob: |
               release/*.AppImage
+              release/*.tar.gz
               release/latest-linux.yml
 
     steps:
@@ -113,6 +114,7 @@ jobs:
 
             - Windows: `Comms Hub Setup <version>.exe`
             - Linux: `Comms Hub-<version>.AppImage`
+            - Linux fallback: `Comms Hub-<version>.tar.gz`
 
             Other files:
 
@@ -123,4 +125,5 @@ jobs:
             release-assets/*.blockmap
             release-assets/*.yml
             release-assets/*.AppImage
+            release-assets/*.tar.gz
           generate_release_notes: true

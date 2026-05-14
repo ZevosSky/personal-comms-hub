@@ -66,12 +66,35 @@ input {
 }
 
 .dock-trigger-tab {
+  appearance: none;
   width: 100%;
   height: 100%;
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.015));
-  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.025);
+  padding: 0;
+  border: 1px solid rgba(226, 232, 240, 0.08);
+  background: linear-gradient(180deg, rgba(226, 232, 240, 0.065), rgba(148, 163, 184, 0.025));
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.04);
   backdrop-filter: blur(16px) saturate(135%);
+  cursor: pointer;
+  outline: 0;
+  transition:
+    background 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    opacity 160ms ease;
+}
+
+.dock-trigger-tab:hover,
+.dock-trigger-tab:focus-visible {
+  border-color: rgba(125, 211, 252, 0.62);
+  background: linear-gradient(180deg, rgba(125, 211, 252, 0.28), rgba(14, 165, 233, 0.14));
+  box-shadow:
+    0 0 0 1px rgba(125, 211, 252, 0.18),
+    0 14px 34px rgba(14, 165, 233, 0.24);
+}
+
+.dock-trigger-tab:active {
+  background: linear-gradient(180deg, rgba(14, 165, 233, 0.36), rgba(37, 99, 235, 0.18));
+  border-color: rgba(186, 230, 253, 0.7);
 }
 
 .dock-trigger-shell.left-anchored .dock-trigger-tab {
@@ -175,11 +198,43 @@ input {
   cursor: pointer;
   -webkit-app-region: no-drag;
   box-shadow: 0 6px 18px rgba(15, 23, 42, 0.02);
+  outline: 0;
+  transition:
+    background 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    transform 160ms ease;
+}
+
+.dock-rail-button:hover,
+.dock-rail-button:focus-visible {
+  background: rgba(226, 232, 240, 0.12);
+  border-color: rgba(125, 211, 252, 0.32);
+  box-shadow: 0 10px 26px rgba(14, 165, 233, 0.16);
+}
+
+.dock-rail-button:hover .service-icon-wrap,
+.dock-rail-button:focus-visible .service-icon-wrap {
+  opacity: 0.9;
+  transform: translateY(-1px);
+}
+
+.dock-rail-button:hover .service-icon,
+.dock-rail-button:focus-visible .service-icon {
+  opacity: 0.95;
+  filter: saturate(1);
+}
+
+.dock-rail-button:active {
+  transform: translateY(1px);
 }
 
 .dock-rail-button.active {
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(186, 230, 253, 0.08));
   border-color: rgba(255, 255, 255, 0.22);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 12px 28px rgba(14, 165, 233, 0.18);
 }
 
 .dock-add-button {
@@ -202,6 +257,25 @@ input {
   cursor: pointer;
   -webkit-app-region: no-drag;
   box-shadow: 0 6px 18px rgba(15, 23, 42, 0.02);
+  outline: 0;
+  transition:
+    background 160ms ease,
+    border-color 160ms ease,
+    color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.dock-footer-button:hover,
+.dock-footer-button:focus-visible {
+  background: rgba(14, 165, 233, 0.18);
+  border-color: rgba(125, 211, 252, 0.38);
+  color: #e0f2fe;
+  box-shadow: 0 10px 24px rgba(14, 165, 233, 0.14);
+}
+
+.dock-footer-button:active {
+  background: rgba(37, 99, 235, 0.22);
+  border-color: rgba(186, 230, 253, 0.48);
 }
 
 .dock-bubble {
@@ -400,6 +474,7 @@ input {
 .secondary-button,
 .ghost-button,
 .danger-button,
+.compact-action-button,
 .mini-service-row {
   border: 1px solid transparent;
   cursor: pointer;
@@ -783,6 +858,34 @@ input {
   background: linear-gradient(180deg, rgba(14, 165, 233, 0.16), rgba(30, 41, 59, 0.72));
 }
 
+.mini-service-row:hover {
+  border-color: rgba(148, 163, 184, 0.24);
+  background: rgba(30, 41, 59, 0.76);
+}
+
+.hidden-service-row {
+  cursor: default;
+}
+
+.hidden-service-row:hover {
+  border-color: rgba(148, 163, 184, 0.16);
+  background: rgba(15, 23, 42, 0.72);
+}
+
+.compact-action-button {
+  border-radius: 12px;
+  border-color: rgba(56, 189, 248, 0.28);
+  background: rgba(14, 165, 233, 0.1);
+  color: #c7ecff;
+  padding: 8px 10px;
+}
+
+.compact-action-button:hover,
+.compact-action-button:focus-visible {
+  border-color: rgba(125, 211, 252, 0.48);
+  background: rgba(14, 165, 233, 0.18);
+}
+
 .mini-service-icon {
   width: 32px;
   height: 32px;
@@ -921,6 +1024,10 @@ input {
 
 .service-webview.visible {
   visibility: visible;
+}
+
+.service-webview.layout-refreshing {
+  transform: translateZ(0);
 }
 
 .modal-backdrop {

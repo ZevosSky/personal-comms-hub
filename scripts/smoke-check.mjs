@@ -13,6 +13,8 @@ const assert = (condition, message) => {
 const packageJson = readJson(path.join(root, "package.json"));
 const distIndexPath = path.join(root, "dist", "index.html");
 const distIndex = fs.readFileSync(distIndexPath, "utf8");
+const preloadSource = fs.readFileSync(path.join(root, "electron", "preload.js"), "utf8");
+const mainSource = fs.readFileSync(path.join(root, "electron", "main.js"), "utf8");
 
 assert(fs.existsSync(distIndexPath), "dist/index.html is missing. Run the build first.");
 assert(distIndex.includes("./assets/"), "dist/index.html should reference relative ./assets paths.");
@@ -32,9 +34,23 @@ assert(packageJson.scripts?.build, "package.json is missing a build script.");
 assert(packageJson.scripts?.smoke, "package.json is missing a smoke script.");
 assert(packageJson.scripts?.["dist:win"], "package.json is missing a dist:win script.");
 assert(packageJson.scripts?.["dist:linux"], "package.json is missing a dist:linux script.");
+assert(preloadSource.includes("refreshActiveWebview"), "preload should expose active webview refresh.");
+assert(
+  preloadSource.includes("onRefreshActiveWebview"),
+  "preload should expose active webview refresh events."
+);
+assert(
+  mainSource.includes("webviews:refresh-active") && mainSource.includes("webview:refresh-active"),
+  "main process should bridge active webview refresh requests."
+);
 
 assert(packageJson.build?.win?.target, "Windows packaging target is missing.");
 assert(packageJson.build?.linux?.target, "Linux packaging target is missing.");
+const linuxTargets = packageJson.build.linux.target.map((target) =>
+  typeof target === "string" ? target : target.target
+);
+assert(linuxTargets.includes("AppImage"), "Linux AppImage target is missing.");
+assert(linuxTargets.includes("tar.gz"), "Linux tar.gz fallback target is missing.");
 assert(packageJson.build?.nsis?.createStartMenuShortcut === true, "NSIS Start Menu shortcut should be enabled.");
 assert(packageJson.build?.nsis?.createDesktopShortcut, "NSIS Desktop shortcut should be enabled.");
 
