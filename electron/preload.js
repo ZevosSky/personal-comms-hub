@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from "electron";
 
+// Keep renderer access limited to an explicit IPC surface.
 contextBridge.exposeInMainWorld("commsApp", {
   getState: () => ipcRenderer.invoke("app-state:get"),
   saveService: (service) => ipcRenderer.invoke("services:save", service),

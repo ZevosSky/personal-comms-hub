@@ -1,5 +1,6 @@
 import { ipcRenderer } from "electron";
 
+// Injected into guest webviews to mirror web Notification events back to the host app.
 const bridgeScript = `
   (() => {
     if (window.__commsNotificationBridgeInstalled) {
@@ -55,6 +56,7 @@ window.addEventListener("message", (event) => {
     return;
   }
 
+  // Use sendToHost so the parent webview can process captured notification payloads.
   const payload = event.data.payload ?? {};
   ipcRenderer.sendToHost("comms-app-notification", payload);
 });
