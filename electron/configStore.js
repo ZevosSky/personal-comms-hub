@@ -17,6 +17,7 @@ const getServiceCompatibilityOverrides = (service) => {
       ? hostname.slice(4)
       : hostname;
 
+    // Some services block or misbehave on Electron's default UA/session model.
     if (normalizedHostname === "web.wechat.com" || normalizedHostname === "wx.qq.com") {
       return {
         userAgent: modernChromeUserAgent,
@@ -208,6 +209,7 @@ const ensureIconsDir = () => {
 const mergeBuiltIns = (storedServices) => {
   const byId = new Map(storedServices.map((service) => [service.id, service]));
 
+  // Preserve user customizations for built-ins while still adding any newly introduced defaults.
   return [
     ...storedServices.map((service) => {
       const builtin = builtInServices.find((item) => item.id === service.id);
@@ -246,6 +248,7 @@ const normalizeDockHeight = (value) => {
 const normalizeService = (service, existing) => ({
   ...(() => {
     const compatibilityOverrides = getServiceCompatibilityOverrides(service);
+    // Default-session services intentionally skip partition assignment.
     const useDefaultSession =
       compatibilityOverrides.useDefaultSession ??
       service.useDefaultSession ??

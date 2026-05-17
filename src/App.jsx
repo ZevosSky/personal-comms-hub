@@ -246,6 +246,7 @@ function App() {
     const counts = {};
     const lastSeenByService = appState?.ui?.notificationLastSeenByService ?? {};
 
+    // Count only notifications newer than each service's last-seen timestamp.
     for (const entry of appState?.notificationHistory ?? []) {
       if (!entry?.serviceId) {
         continue;
@@ -270,6 +271,7 @@ function App() {
       return [];
     }
 
+    // Memory saver renders only active + keep-alive services to reduce background webviews.
     if (appState?.ui?.memorySaverEnabled) {
       const wantedIds = new Set([activeService.id, ...keepAliveServiceIds]);
       return services.filter((service) => wantedIds.has(service.id));
@@ -306,6 +308,7 @@ function App() {
   }, [keepAliveServiceIds]);
 
   useEffect(() => {
+    // Bind webview events once per mounted webview and clean them up on dependency changes.
     renderedServices.forEach((service) => {
       const webview = webviewRefs.current[service.id];
       if (!webview || webview.dataset.bound === "true") {
