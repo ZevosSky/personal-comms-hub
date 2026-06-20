@@ -2,6 +2,9 @@
 
 Comms Hub is an Electron + React desktop app for keeping several web-based messaging tools in one place. It currently includes built-in entries for Gmail, Discord, Messenger, Slack, and Teams, and it also supports adding custom web apps with your own icons. ( I'm going to be honest I just made this because I didn't like any of the options out there ) 
 
+<img width="2628" height="2048" alt="Screen Recording 2026-06-20 154014" src="https://github.com/user-attachments/assets/8a2caada-e994-42ca-af6e-01ec18d3354b" />
+
+
 ## Build From Source
 
 ### Requirements
