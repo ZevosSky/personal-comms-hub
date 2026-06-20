@@ -7,8 +7,8 @@ Comms Hub is an Electron + React desktop app for keeping several web-based messa
 all from a neat collapsable tab on the side of the screen
 
 
+<img width="714" height="1108" alt="Screen Recording 2026-06-20 155004" src="https://github.com/user-attachments/assets/1ad9e486-3ca1-4fce-80ad-a72c74f8f0e6" />
 
-https://github.com/user-attachments/assets/fe385212-3d77-4244-821c-d2daab8b96ba
 
 also a full windowed option
 <img width="3587" height="1805" alt="Screenshot 2026-06-20 155256" src="https://github.com/user-attachments/assets/9fadde0d-b115-4ad5-887c-00cdc6b1e0c7" />
