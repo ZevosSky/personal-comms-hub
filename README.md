@@ -4,6 +4,16 @@ Comms Hub is an Electron + React desktop app for keeping several web-based messa
 
 <img width="2628" height="2048" alt="Screen Recording 2026-06-20 154014" src="https://github.com/user-attachments/assets/8a2caada-e994-42ca-af6e-01ec18d3354b" />
 
+all from a neat collapsable tab on the side of the screen
+
+
+
+https://github.com/user-attachments/assets/fe385212-3d77-4244-821c-d2daab8b96ba
+
+also a full windowed option
+<img width="3587" height="1805" alt="Screenshot 2026-06-20 155256" src="https://github.com/user-attachments/assets/9fadde0d-b115-4ad5-887c-00cdc6b1e0c7" />
+
+
 
 ## Build From Source
 
@@ -12,7 +22,7 @@ Comms Hub is an Electron + React desktop app for keeping several web-based messa
 - Node.js 20+ recommended
 - npm
 - Windows for the current Windows installer flow
-- Linux or WSL with Linux-native `node`/`npm` if you want to build the Linux AppImage
+- Linux or WSL with Linux-native `node`/`npm` if you want to build the Linux AppImage (I think I broke this at some point, I don't understand how Linux Windows work really well)
 
 ### Install Dependencies
 
