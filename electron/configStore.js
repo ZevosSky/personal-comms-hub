@@ -3,6 +3,7 @@ import path from "node:path";
 import { app } from "electron";
 import Store from "electron-store";
 import { v4 as uuidv4 } from "uuid";
+import { getDockModeCapabilities, normalizePreferredBubbleSize } from "./windowGeometry.js";
 
 const svgToDataUrl = (svg) =>
   `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
@@ -185,6 +186,7 @@ const schema = {
       dockCorner: "bottom-left",
       dockHeight: 420,
       dockExpanded: true,
+      bubbleSize: { width: 980, height: 820 },
       notificationLastSeenByService: {}
     }
   },
@@ -243,6 +245,11 @@ const normalizeDockHeight = (value) => {
   return Math.min(720, Math.max(280, Math.round(numericValue)));
 };
 
+const normalizeZoomFactor = (value) => {
+  const factor = Number(value ?? 1);
+  return Number.isFinite(factor) ? Math.min(2, Math.max(0.5, factor)) : 1;
+};
+
 const normalizeService = (service, existing) => ({
   ...(() => {
     const compatibilityOverrides = getServiceCompatibilityOverrides(service);
@@ -270,6 +277,7 @@ const normalizeService = (service, existing) => ({
         service.supportsBadgeDetection ?? existing?.supportsBadgeDetection ?? true,
       keepAliveInBackground:
         service.keepAliveInBackground ?? existing?.keepAliveInBackground ?? false,
+      zoomFactor: normalizeZoomFactor(service.zoomFactor ?? existing?.zoomFactor),
       userAgent:
         compatibilityOverrides.userAgent ??
         service.userAgent ??
@@ -299,12 +307,14 @@ export const getAppState = () => {
     dockCorner: rawUi.dockCorner ?? "bottom-left",
     dockHeight: normalizeDockHeight(rawUi.dockHeight),
     dockExpanded: rawUi.dockExpanded ?? true,
+    bubbleSize: normalizePreferredBubbleSize(rawUi.bubbleSize),
     notificationLastSeenByService: rawUi.notificationLastSeenByService ?? {}
   };
 
   return {
     services,
     ui,
+    capabilities: getDockModeCapabilities(process.platform),
     iconLibrary,
     notificationHistory
   };

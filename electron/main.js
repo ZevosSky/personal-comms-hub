@@ -14,7 +14,9 @@ import {
   screen,
   session,
   shell,
-  Tray
+  Tray,
+  WebContentsView,
+  webContents
 } from "electron";
 import {
   appendNotificationHistory,
@@ -27,6 +29,24 @@ import {
   setUiState,
   upsertService
 } from "./configStore.js";
+import { createServiceManager, clampServiceZoom } from "./serviceManager.js";
+import {
+  BUBBLE_DEFAULT_SIZE,
+  DOCK_WINDOW_SIZE,
+  WINDOW_SIDE_INSET,
+  WINDOW_VERTICAL_INSET,
+  getBubbleBoundsForWorkArea,
+  getBubbleConstraints,
+  getDockBoundsForWorkArea,
+  getDockModeCapabilities,
+  normalizePreferredBubbleSize
+} from "./windowGeometry.js";
+import {
+  applyBoundsIfChanged,
+  configureUtilityWindowOnce,
+  createCoalescedAsyncRunner,
+  setUtilityWindowVisibility
+} from "./dockController.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -39,10 +59,17 @@ let dockWindow = null;
 let bubbleWindow = null;
 let dockTriggerWindow = null;
 let appTray = null;
+let serviceManager = null;
+const serviceViewports = new Map();
+const serviceBadgeCounts = {};
 let quitRequested = false;
 let shutdownInProgress = false;
 let dockVisibilityPoll = null;
 let dockHideTimeout = null;
+let bubbleResizeTimeout = null;
+let dockWindowCreation = null;
+let bubbleWindowCreation = null;
+let dockTriggerWindowCreation = null;
 const isDev = process.argv.includes("--dev");
 const isLinux = process.platform === "linux";
 const guestPreloadPath = path.join(__dirname, "guestPreload.js");
@@ -81,9 +108,9 @@ const embeddedAuthHosts = new Set([
   "teams.microsoft.com"
 ]);
 const dockWindowSize = {
-  dock: { width: 72, height: 420 },
-  bubble: { width: 980, height: 820 },
-  crossMargin: 18
+  dock: DOCK_WINDOW_SIZE,
+  bubble: BUBBLE_DEFAULT_SIZE,
+  crossMargin: WINDOW_VERTICAL_INSET
 };
 const dockTriggerSize = {
   width: 18,
@@ -94,6 +121,11 @@ const dockVisibilityPollMs = 75;
 const dockHeightRange = {
   min: 280,
   max: 720
+};
+
+const supportsDockMode = () => {
+  const capabilities = getAppState().capabilities ?? getDockModeCapabilities(process.platform);
+  return process.platform !== "linux" && capabilities.dockModeSupported !== false;
 };
 
 const writeStartupDiagnostic = (message, error) => {
@@ -245,8 +277,12 @@ const configureSessionPermissions = (targetSession) => {
   });
 
   targetSession.setPermissionRequestHandler(
-    (_webContents, permission, callback, details) => {
-      callback(allowedPermissions.has(permission) && isSafeHttpUrl(details.requestingUrl));
+    (contents, permission, callback, details) => {
+      const allowed = allowedPermissions.has(permission) && isSafeHttpUrl(details.requestingUrl);
+      if (allowed && ["media", "display-capture"].includes(permission) && contents) {
+        serviceManager?.protectMedia(contents.id);
+      }
+      callback(allowed);
     }
   );
 
@@ -271,6 +307,8 @@ const configureSessionPermissions = (targetSession) => {
           return;
         }
 
+        const capturingContents = request.frame ? webContents.fromFrame(request.frame) : null;
+        if (capturingContents) serviceManager?.protectMedia(capturingContents.id);
         callback({
           video: request.videoRequested ? preferredSource : undefined,
           audio:
@@ -365,7 +403,11 @@ const destroyTray = () => {
 };
 
 const destroyAllWindows = () => {
+  serviceManager?.dispose();
+  serviceViewports.clear();
   stopDockVisibilityController();
+  clearTimeout(bubbleResizeTimeout);
+  bubbleResizeTimeout = null;
   for (const windowInstance of [bubbleWindow, dockTriggerWindow, dockWindow, mainWindow]) {
     if (windowInstance && !windowInstance.isDestroyed()) {
       windowInstance.destroy();
@@ -395,24 +437,39 @@ const showFullApp = async () => {
   return getAppState();
 };
 
+const isAppShell = (contents) => getAllAppWindows().some((window) => window.webContents === contents);
+const runtimeSnapshot = () => ({ ...(serviceManager?.getRuntimeState() ?? { services: {} }), badgeCounts: { ...serviceBadgeCounts } });
+const broadcastRuntime = () => {
+  for (const window of getAllAppWindows()) window.webContents.send("services:runtime-updated", runtimeSnapshot());
+};
+const currentServiceHost = (state = getAppState()) =>
+  state.ui.windowMode === "dock" && supportsDockMode() ? bubbleWindow : mainWindow;
+const presentManagedService = () => {
+  if (!serviceManager || shutdownInProgress) return;
+  const state = getAppState();
+  const host = currentServiceHost(state);
+  const viewport = host && !host.isDestroyed() ? serviceViewports.get(host.webContents.id) : null;
+  const valid = viewport && viewport.serviceId === state.ui.activeServiceId;
+  serviceManager.setPresentation({
+    host: valid ? host : null,
+    bounds: valid ? viewport.bounds : null,
+    obscured: !valid || viewport.obscured || !host.isVisible() || (state.ui.windowMode === "dock" && !state.ui.dockExpanded),
+    borderRadius: host === bubbleWindow ? 28 : 0
+  });
+};
+const requestServiceViewport = () => {
+  const host = currentServiceHost();
+  if (host && !host.isDestroyed()) host.webContents.send("services:request-viewport");
+};
 const broadcastState = (state) => {
+  serviceManager?.sync(state);
+  presentManagedService();
   for (const windowInstance of getAllAppWindows()) {
     windowInstance.webContents.send("state:updated", state);
   }
+  requestServiceViewport();
 };
-
-const requestActiveWebviewRefresh = () => {
-  const { activeServiceId } = getAppState().ui;
-  if (!activeServiceId) {
-    return false;
-  }
-
-  for (const windowInstance of getAllAppWindows()) {
-    windowInstance.webContents.send("webview:refresh-active", { activeServiceId });
-  }
-
-  return true;
-};
+const requestActiveWebviewRefresh = () => serviceManager?.refreshActive() ?? false;
 
 const markActiveServiceSeen = () => {
   const state = getAppState();
@@ -426,56 +483,42 @@ const markActiveServiceSeen = () => {
 };
 
 const getDockBounds = (ui = getAppState().ui) => {
-  const { dock, crossMargin } = dockWindowSize;
   const workArea = screen.getPrimaryDisplay().workArea;
-  const target = {
-    ...dock,
-    height: clampDockHeight(ui.dockHeight)
-  };
+  return getDockBoundsForWorkArea({
+    workArea,
+    corner: ui.dockCorner,
+    height: clampDockHeight(ui.dockHeight),
+    dock: dockWindowSize.dock
+  });
+};
 
-  let x = workArea.x;
-  let y = workArea.y + workArea.height - target.height - crossMargin;
-
-  switch (ui.dockCorner) {
-    case "top-left":
-      x = workArea.x;
-      y = workArea.y + crossMargin;
-      break;
-    case "top-right":
-      x = workArea.x + workArea.width - target.width;
-      y = workArea.y + crossMargin;
-      break;
-    case "bottom-right":
-      x = workArea.x + workArea.width - target.width;
-      y = workArea.y + workArea.height - target.height - crossMargin;
-      break;
-    case "bottom-left":
-    default:
-      x = workArea.x;
-      y = workArea.y + workArea.height - target.height - crossMargin;
-      break;
+const normalizeUnsupportedDockMode = () => {
+  if (supportsDockMode()) {
+    return getAppState();
   }
 
-  return {
-    ...target,
-    x,
-    y
-  };
+  const state = getAppState();
+  if (state.ui.windowMode !== "dock") {
+    return state;
+  }
+
+  return setUiState({ windowMode: "full", dockExpanded: true });
 };
 
 const getDockTriggerBounds = (ui = getAppState().ui) => {
   const dockBounds = getDockBounds(ui);
   const workArea = screen.getPrimaryDisplay().workArea;
   const rightAnchored = ui.dockCorner === "top-right" || ui.dockCorner === "bottom-right";
+  const width = Math.min(dockTriggerSize.width, Math.max(1, workArea.width - WINDOW_SIDE_INSET * 2));
   const height = Math.min(dockTriggerSize.height, dockBounds.height);
   const y = Math.round(dockBounds.y + (dockBounds.height - height) / 2);
 
   return {
-    width: dockTriggerSize.width,
+    width,
     height,
     x: rightAnchored
-      ? workArea.x + workArea.width - dockTriggerSize.width
-      : workArea.x,
+      ? workArea.x + workArea.width - width - WINDOW_SIDE_INSET
+      : workArea.x + WINDOW_SIDE_INSET,
     y
   };
 };
@@ -490,56 +533,51 @@ const isPointInBounds = (point, bounds) =>
   );
 
 const getBubbleBounds = (ui = getAppState().ui) => {
-  const { bubble, crossMargin } = dockWindowSize;
   const workArea = screen.getPrimaryDisplay().workArea;
   const dockBounds = getDockBounds(ui);
-  const rightAnchored = ui.dockCorner === "top-right" || ui.dockCorner === "bottom-right";
-
-  let x = rightAnchored ? dockBounds.x - bubble.width : dockBounds.x + dockBounds.width;
-  let y = dockBounds.y;
-
-  if (ui.dockCorner === "top-left" || ui.dockCorner === "top-right") {
-    y = workArea.y + crossMargin;
-  } else {
-    y = workArea.y + workArea.height - bubble.height - crossMargin;
-  }
-
-  return {
-    ...bubble,
-    x,
-    y
-  };
+  return getBubbleBoundsForWorkArea({
+    workArea,
+    dockBounds,
+    corner: ui.dockCorner,
+    preferredSize: ui.bubbleSize ?? dockWindowSize.bubble
+  });
 };
 
 const applyDockBounds = () => {
-  if (!dockWindow || dockWindow.isDestroyed()) {
+  if (!supportsDockMode() || !dockWindow || dockWindow.isDestroyed()) {
     return;
   }
 
   const bounds = getDockBounds();
-  dockWindow.setMinimumSize(bounds.width, bounds.height);
-  dockWindow.setMaximumSize(bounds.width, bounds.height);
-  dockWindow.setBounds(bounds, true);
+  const current = dockWindow.getBounds();
+  if (current.width !== bounds.width || current.height !== bounds.height) {
+    dockWindow.setMinimumSize(bounds.width, bounds.height);
+    dockWindow.setMaximumSize(bounds.width, bounds.height);
+  }
+  applyBoundsIfChanged(dockWindow, bounds);
 };
 
 const applyBubbleBounds = () => {
-  if (!bubbleWindow || bubbleWindow.isDestroyed()) {
+  if (!supportsDockMode() || !bubbleWindow || bubbleWindow.isDestroyed()) {
     return;
   }
 
   const bounds = getBubbleBounds();
-  bubbleWindow.setBounds(bounds, true);
+  const constraints = getBubbleConstraints(screen.getPrimaryDisplay().workArea, getDockBounds().width);
+  bubbleWindow.setMinimumSize(constraints.minWidth, constraints.minHeight);
+  bubbleWindow.setMaximumSize(constraints.maxWidth, constraints.maxHeight);
+  applyBoundsIfChanged(bubbleWindow, bounds);
 };
 
 const applyDockTriggerBounds = () => {
-  if (!dockTriggerWindow || dockTriggerWindow.isDestroyed()) {
+  if (!supportsDockMode() || !dockTriggerWindow || dockTriggerWindow.isDestroyed()) {
     return;
   }
 
   const bounds = getDockTriggerBounds();
   dockTriggerWindow.setMinimumSize(bounds.width, bounds.height);
   dockTriggerWindow.setMaximumSize(bounds.width, bounds.height);
-  dockTriggerWindow.setBounds(bounds, true);
+  applyBoundsIfChanged(dockTriggerWindow, bounds);
 };
 
 const clearDockHideTimeout = () => {
@@ -550,9 +588,7 @@ const clearDockHideTimeout = () => {
 };
 
 const hideDockTriggerWindow = () => {
-  if (dockTriggerWindow && !dockTriggerWindow.isDestroyed() && dockTriggerWindow.isVisible()) {
-    dockTriggerWindow.hide();
-  }
+  setUtilityWindowVisibility(dockTriggerWindow, false);
 };
 
 const showDockTriggerWindow = () => {
@@ -560,10 +596,10 @@ const showDockTriggerWindow = () => {
     return;
   }
 
-  applyDockTriggerBounds();
   configureFloatingUtilityWindow(dockTriggerWindow);
   if (!dockTriggerWindow.isVisible()) {
-    dockTriggerWindow.showInactive();
+    applyDockTriggerBounds();
+    setUtilityWindowVisibility(dockTriggerWindow, true);
   }
 };
 
@@ -572,17 +608,15 @@ const showDockWindow = () => {
     return;
   }
 
-  applyDockBounds();
   configureFloatingUtilityWindow(dockWindow);
   if (!dockWindow.isVisible()) {
-    dockWindow.showInactive();
+    applyDockBounds();
+    setUtilityWindowVisibility(dockWindow, true);
   }
 };
 
 const hideDockWindow = () => {
-  if (dockWindow && !dockWindow.isDestroyed() && dockWindow.isVisible()) {
-    dockWindow.hide();
-  }
+  setUtilityWindowVisibility(dockWindow, false);
 };
 
 const showBubbleWindow = () => {
@@ -590,29 +624,22 @@ const showBubbleWindow = () => {
     return;
   }
 
-  applyBubbleBounds();
   configureFloatingUtilityWindow(bubbleWindow);
   if (!bubbleWindow.isVisible()) {
-    bubbleWindow.showInactive();
+    applyBubbleBounds();
+    setUtilityWindowVisibility(bubbleWindow, true);
   }
 };
 
 const hideBubbleWindow = () => {
-  if (bubbleWindow && !bubbleWindow.isDestroyed() && bubbleWindow.isVisible()) {
-    bubbleWindow.hide();
-  }
+  setUtilityWindowVisibility(bubbleWindow, false);
 };
 
 const configureFloatingUtilityWindow = (windowInstance) => {
-  if (!windowInstance || windowInstance.isDestroyed()) {
+  if (!supportsDockMode()) {
     return;
   }
-
-  windowInstance.setAlwaysOnTop(true, "floating");
-  windowInstance.setVisibleOnAllWorkspaces(true, {
-    visibleOnFullScreen: true,
-    skipTransformProcessType: true
-  });
+  configureUtilityWindowOnce(windowInstance);
 };
 
 const hideDockToTrigger = () => {
@@ -623,6 +650,9 @@ const hideDockToTrigger = () => {
 };
 
 const revealDockFromTrigger = async () => {
+  if (!supportsDockMode()) {
+    return;
+  }
   clearDockHideTimeout();
   const state = getAppState();
 
@@ -645,7 +675,7 @@ const revealDockFromTrigger = async () => {
 
 const shouldKeepDockRevealed = () => {
   const state = getAppState();
-  if (state.ui.windowMode !== "dock") {
+  if (!supportsDockMode() || state.ui.windowMode !== "dock") {
     return false;
   }
 
@@ -670,9 +700,9 @@ const shouldKeepDockRevealed = () => {
   );
 };
 
-const syncDockVisibility = async () => {
+const performDockVisibilitySync = async () => {
   const state = getAppState();
-  if (state.ui.windowMode !== "dock") {
+  if (!supportsDockMode() || state.ui.windowMode !== "dock") {
     clearDockHideTimeout();
     hideDockTriggerWindow();
     hideDockWindow();
@@ -700,6 +730,8 @@ const syncDockVisibility = async () => {
   }
 };
 
+const syncDockVisibility = createCoalescedAsyncRunner(performDockVisibilitySync);
+
 const stopDockVisibilityController = () => {
   clearDockHideTimeout();
   if (dockVisibilityPoll) {
@@ -709,7 +741,7 @@ const stopDockVisibilityController = () => {
 };
 
 const startDockVisibilityController = () => {
-  if (dockVisibilityPoll) {
+  if (!supportsDockMode() || dockVisibilityPoll) {
     return;
   }
 
@@ -720,7 +752,7 @@ const startDockVisibilityController = () => {
 
 const restoreDockWindows = () => {
   const state = getAppState();
-  if (state.ui.windowMode !== "dock") {
+  if (!supportsDockMode() || state.ui.windowMode !== "dock") {
     return;
   }
 
@@ -743,11 +775,18 @@ const restoreDockWindows = () => {
 };
 
 const attachSharedWindowBehavior = (windowInstance) => {
+  windowInstance.webContents.setZoomFactor(1);
   windowInstance.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
     return { action: "deny" };
   });
 
+  windowInstance.on("closed", () => {
+    for (const [id, viewport] of serviceViewports) {
+      if (viewport.windowId === windowInstance.id) serviceViewports.delete(id);
+    }
+  });
+  windowInstance.on("resize", requestServiceViewport);
   windowInstance.setMenuBarVisibility(false);
   windowInstance.on("close", (event) => {
     if (!shutdownInProgress && process.platform !== "darwin") {
@@ -766,9 +805,12 @@ const attachSharedWindowBehavior = (windowInstance) => {
     syncDockVisibility().catch(() => {});
   });
   windowInstance.on("show", () => {
+    presentManagedService();
+    requestServiceViewport();
     syncDockVisibility().catch(() => {});
   });
   windowInstance.on("hide", () => {
+    presentManagedService();
     syncDockVisibility().catch(() => {});
   });
 };
@@ -786,16 +828,21 @@ const updateTrayMenu = () => {
         showFullApp().catch(() => {});
       }
     },
-    {
-      label: state.ui.windowMode === "dock" ? "Restore dock mode" : "Enter dock mode",
-      click: async () => {
-        const nextState = setUiState({
-          windowMode: state.ui.windowMode === "dock" ? "full" : "dock"
-        });
-        broadcastState(nextState);
-        await syncWindowMode();
-      }
-    },
+    supportsDockMode()
+      ? {
+          label: state.ui.windowMode === "dock" ? "Restore dock mode" : "Enter dock mode",
+          click: async () => {
+            const nextState = setUiState({
+              windowMode: state.ui.windowMode === "dock" ? "full" : "dock"
+            });
+            broadcastState(nextState);
+            await syncWindowMode();
+          }
+        }
+      : {
+          label: "Dock mode unavailable on Linux",
+          enabled: false
+        },
     { type: "separator" },
     {
       label: "Quit",
@@ -852,6 +899,10 @@ const loadRendererIntoWindow = async (windowInstance, mode = "full") => {
 };
 
 const createMainWindow = async () => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    return mainWindow;
+  }
+
   mainWindow = new BrowserWindow({
     width: 1440,
     height: 960,
@@ -860,6 +911,7 @@ const createMainWindow = async () => {
     title: "Comms Hub",
     icon: appIcon,
     backgroundColor: "#08111d",
+    show: false,
     autoHideMenuBar: true,
     titleBarStyle: process.platform === "win32" ? "hidden" : "default",
     titleBarOverlay:
@@ -874,11 +926,9 @@ const createMainWindow = async () => {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false,
+      sandbox: true,
       webSecurity: true,
-      allowRunningInsecureContent: false,
-      webviewTag: true,
-      additionalArguments: [`--guest-preload=${guestPreloadPath}`]
+      allowRunningInsecureContent: false
     }
   });
 
@@ -887,128 +937,200 @@ const createMainWindow = async () => {
     mainWindow = null;
   });
   await loadRendererIntoWindow(mainWindow, "full");
+  return mainWindow;
 };
 
 const createDockWindow = async () => {
-  const bounds = getDockBounds();
-  const dockHeight = clampDockHeight(getAppState().ui.dockHeight);
+  if (!supportsDockMode()) {
+    return null;
+  }
+  if (dockWindowCreation) {
+    return dockWindowCreation;
+  }
+  if (dockWindow && !dockWindow.isDestroyed()) {
+    return dockWindow;
+  }
 
-  dockWindow = new BrowserWindow({
-    ...bounds,
-    minWidth: dockWindowSize.dock.width,
-    minHeight: dockHeight,
-    maxWidth: dockWindowSize.dock.width,
-    maxHeight: dockHeight,
-    title: "Comms Hub Dock",
-    icon: appIcon,
-    frame: false,
-    resizable: false,
-    fullscreenable: false,
-    alwaysOnTop: true,
-    skipTaskbar: true,
-    transparent: true,
-    backgroundColor: "#00000000",
-    webPreferences: {
-      preload: path.join(__dirname, "preload.js"),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: false,
-      webSecurity: true,
-      allowRunningInsecureContent: false,
-      webviewTag: true,
-      additionalArguments: [`--guest-preload=${guestPreloadPath}`]
-    }
+  dockWindowCreation = (async () => {
+    const bounds = getDockBounds();
+    const dockHeight = bounds.height;
+    const nextDockWindow = new BrowserWindow({
+      ...bounds,
+      minWidth: bounds.width,
+      minHeight: dockHeight,
+      maxWidth: bounds.width,
+      maxHeight: dockHeight,
+      title: "Comms Hub Dock",
+      icon: appIcon,
+      frame: false,
+      resizable: false,
+      fullscreenable: false,
+      alwaysOnTop: true,
+      skipTaskbar: true,
+      transparent: true,
+      backgroundColor: "#00000000",
+      show: false,
+      webPreferences: {
+        preload: path.join(__dirname, "preload.js"),
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: true,
+        webSecurity: true,
+        allowRunningInsecureContent: false
+      }
+    });
+
+    dockWindow = nextDockWindow;
+    attachSharedWindowBehavior(nextDockWindow);
+    configureFloatingUtilityWindow(nextDockWindow);
+    nextDockWindow.on("closed", () => {
+      if (dockWindow === nextDockWindow) {
+        dockWindow = null;
+      }
+    });
+    await loadRendererIntoWindow(nextDockWindow, "dock");
+    return nextDockWindow;
+  })().finally(() => {
+    dockWindowCreation = null;
   });
 
-  attachSharedWindowBehavior(dockWindow);
-  configureFloatingUtilityWindow(dockWindow);
-  dockWindow.on("closed", () => {
-    dockWindow = null;
-  });
-  await loadRendererIntoWindow(dockWindow, "dock");
+  return dockWindowCreation;
 };
 
 const createDockTriggerWindow = async () => {
-  const bounds = getDockTriggerBounds();
+  if (!supportsDockMode()) {
+    return null;
+  }
+  if (dockTriggerWindowCreation) {
+    return dockTriggerWindowCreation;
+  }
+  if (dockTriggerWindow && !dockTriggerWindow.isDestroyed()) {
+    return dockTriggerWindow;
+  }
 
-  dockTriggerWindow = new BrowserWindow({
-    ...bounds,
-    minWidth: bounds.width,
-    minHeight: bounds.height,
-    maxWidth: bounds.width,
-    maxHeight: bounds.height,
-    title: "Comms Hub Dock Trigger",
-    icon: appIcon,
-    frame: false,
-    resizable: false,
-    fullscreenable: false,
-    alwaysOnTop: true,
-    skipTaskbar: true,
-    transparent: true,
-    backgroundColor: "#00000000",
-    webPreferences: {
-      preload: path.join(__dirname, "preload.js"),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: false,
-      webSecurity: true,
-      allowRunningInsecureContent: false
-    }
+  dockTriggerWindowCreation = (async () => {
+    const bounds = getDockTriggerBounds();
+    const nextDockTriggerWindow = new BrowserWindow({
+      ...bounds,
+      minWidth: bounds.width,
+      minHeight: bounds.height,
+      maxWidth: bounds.width,
+      maxHeight: bounds.height,
+      title: "Comms Hub Dock Trigger",
+      icon: appIcon,
+      frame: false,
+      resizable: false,
+      fullscreenable: false,
+      alwaysOnTop: true,
+      skipTaskbar: true,
+      transparent: true,
+      backgroundColor: "#00000000",
+      show: false,
+      webPreferences: {
+        preload: path.join(__dirname, "preload.js"),
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: true,
+        webSecurity: true,
+        allowRunningInsecureContent: false
+      }
+    });
+
+    dockTriggerWindow = nextDockTriggerWindow;
+    attachSharedWindowBehavior(nextDockTriggerWindow);
+    configureFloatingUtilityWindow(nextDockTriggerWindow);
+    nextDockTriggerWindow.on("closed", () => {
+      if (dockTriggerWindow === nextDockTriggerWindow) {
+        dockTriggerWindow = null;
+      }
+    });
+    await loadRendererIntoWindow(nextDockTriggerWindow, "trigger");
+    return nextDockTriggerWindow;
+  })().finally(() => {
+    dockTriggerWindowCreation = null;
   });
 
-  attachSharedWindowBehavior(dockTriggerWindow);
-  configureFloatingUtilityWindow(dockTriggerWindow);
-  dockTriggerWindow.on("closed", () => {
-    dockTriggerWindow = null;
-  });
-  await loadRendererIntoWindow(dockTriggerWindow, "trigger");
+  return dockTriggerWindowCreation;
 };
 
 const createBubbleWindow = async () => {
-  const bounds = getBubbleBounds();
+  if (!supportsDockMode()) {
+    return null;
+  }
+  if (bubbleWindowCreation) {
+    return bubbleWindowCreation;
+  }
+  if (bubbleWindow && !bubbleWindow.isDestroyed()) {
+    return bubbleWindow;
+  }
 
-  bubbleWindow = new BrowserWindow({
-    ...bounds,
-    minWidth: 560,
-    minHeight: 520,
-    maxWidth: dockWindowSize.bubble.width,
-    maxHeight: dockWindowSize.bubble.height,
-    title: "Comms Hub Bubble",
-    icon: appIcon,
-    frame: false,
-    resizable: false,
-    fullscreenable: false,
-    alwaysOnTop: true,
-    skipTaskbar: true,
-    backgroundColor: "#08111d",
-    webPreferences: {
-      preload: path.join(__dirname, "preload.js"),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: false,
-      webSecurity: true,
-      allowRunningInsecureContent: false,
-      webviewTag: true,
-      additionalArguments: [`--guest-preload=${guestPreloadPath}`]
-    }
+  bubbleWindowCreation = (async () => {
+    const bounds = getBubbleBounds();
+    const constraints = getBubbleConstraints(screen.getPrimaryDisplay().workArea, getDockBounds().width);
+    const nextBubbleWindow = new BrowserWindow({
+      ...bounds,
+      minWidth: constraints.minWidth,
+      minHeight: constraints.minHeight,
+      maxWidth: constraints.maxWidth,
+      maxHeight: constraints.maxHeight,
+      title: "Comms Hub Bubble",
+      icon: appIcon,
+      frame: false,
+      resizable: true,
+      fullscreenable: false,
+      alwaysOnTop: true,
+      skipTaskbar: true,
+      transparent: false,
+      backgroundColor: "#08111d",
+      show: false,
+      webPreferences: {
+        preload: path.join(__dirname, "preload.js"),
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: true,
+        webSecurity: true,
+        allowRunningInsecureContent: false
+      }
+    });
+
+    bubbleWindow = nextBubbleWindow;
+    attachSharedWindowBehavior(nextBubbleWindow);
+    configureFloatingUtilityWindow(nextBubbleWindow);
+    // will-resize is emitted for user resizing on supported dock platforms, not setBounds.
+    // Capture the user's preference here so display clamping never overwrites it.
+    nextBubbleWindow.on("will-resize", (_event, requestedBounds) => {
+      const preferredSize = normalizePreferredBubbleSize(requestedBounds);
+      clearTimeout(bubbleResizeTimeout);
+      bubbleResizeTimeout = setTimeout(() => {
+        bubbleResizeTimeout = null;
+        if (nextBubbleWindow.isDestroyed()) return;
+        const state = setUiState({ bubbleSize: preferredSize });
+        broadcastState(state);
+        applyBubbleBounds();
+      }, 180);
+    });
+    nextBubbleWindow.on("closed", () => {
+      if (bubbleWindow === nextBubbleWindow) {
+        bubbleWindow = null;
+      }
+    });
+    await loadRendererIntoWindow(nextBubbleWindow, "bubble");
+    return nextBubbleWindow;
+  })().finally(() => {
+    bubbleWindowCreation = null;
   });
 
-  attachSharedWindowBehavior(bubbleWindow);
-  configureFloatingUtilityWindow(bubbleWindow);
-  bubbleWindow.on("closed", () => {
-    bubbleWindow = null;
-  });
-  await loadRendererIntoWindow(bubbleWindow, "bubble");
+  return bubbleWindowCreation;
 };
 
-const syncWindowMode = async () => {
+const performWindowModeSync = async () => {
   const { windowMode } = getAppState().ui;
 
   if (!mainWindow || mainWindow.isDestroyed()) {
     await createMainWindow();
   }
 
-  if (windowMode === "dock") {
+  if (supportsDockMode() && windowMode === "dock") {
     if (!dockTriggerWindow || dockTriggerWindow.isDestroyed()) {
       await createDockTriggerWindow();
     } else {
@@ -1044,57 +1166,101 @@ const syncWindowMode = async () => {
     bubbleWindow.hide();
   }
 
-  mainWindow.show();
+  if (!mainWindow.isVisible()) {
+    mainWindow.show();
+  }
   mainWindow.focus();
 };
 
-app.on("web-contents-created", (_event, contents) => {
-  if (contents.getType() !== "webview") {
-    return;
-  }
-
-  contents.on("will-navigate", (event, navigationUrl) => {
-    if (!isSafeHttpUrl(navigationUrl)) {
-      event.preventDefault();
-      shell.openExternal(navigationUrl);
-    }
-  });
-
-  contents.setWindowOpenHandler(({ url }) => {
-    if (shouldOpenInsideGuest(contents.getURL(), url)) {
-      contents.loadURL(url).catch(() => {
-        shell.openExternal(url);
-      });
-      return { action: "deny" };
-    }
-
-    shell.openExternal(url);
-    return { action: "deny" };
-  });
+const syncWindowMode = createCoalescedAsyncRunner(async () => {
+  await performWindowModeSync();
+  serviceManager?.sync(getAppState());
+  presentManagedService();
+  requestServiceViewport();
 });
 
-app.on("web-contents-created", (_event, contents) => {
-  if (contents.getType() !== "window") {
-    return;
-  }
-
-  contents.on("will-attach-webview", (event, webPreferences, params) => {
-    if (!isSafeHttpUrl(params.src)) {
-      event.preventDefault();
-      return;
-    }
-
-    delete webPreferences.preloadURL;
-    webPreferences.preload = guestPreloadPath;
-    webPreferences.nodeIntegration = false;
-    webPreferences.nodeIntegrationInSubFrames = false;
-    webPreferences.contextIsolation = true;
-    webPreferences.sandbox = false;
-    webPreferences.webSecurity = true;
-    webPreferences.allowRunningInsecureContent = false;
-    webPreferences.enableBlinkFeatures = "";
-    webPreferences.disableBlinkFeatures = "";
+const initializeServiceManager = () => {
+  serviceManager = createServiceManager({
+    createView: (service) => {
+      const targetSession = service.useDefaultSession ? session.defaultSession : session.fromPartition(service.sessionPartition);
+      configureSessionPermissions(targetSession);
+      const view = new WebContentsView({ webPreferences: {
+        session: targetSession,
+        preload: guestPreloadPath,
+        sandbox: true,
+        contextIsolation: true,
+        nodeIntegration: false,
+        nodeIntegrationInSubFrames: true,
+        webSecurity: true,
+        allowRunningInsecureContent: false
+      } });
+      const contents = view.webContents;
+      if (service.userAgent) contents.setUserAgent(service.userAgent);
+      contents.on("will-navigate", (event, url) => {
+        if (!isSafeHttpUrl(url)) { event.preventDefault(); shell.openExternal(url).catch(() => {}); }
+      });
+      contents.setWindowOpenHandler(({ url }) => {
+        if (shouldOpenInsideGuest(contents.getURL(), url)) {
+          contents.loadURL(url).catch(() => shell.openExternal(url).catch(() => {}));
+        } else shell.openExternal(url).catch(() => {});
+        return { action: "deny" };
+      });
+      return view;
+    },
+    onRuntimeChanged: broadcastRuntime,
+    onTitle: (serviceId, title) => {
+      const service = getAppState().services.find((item) => item.id === serviceId && item.isEnabled);
+      if (!service) return;
+      const match = String(title ?? "").match(/\((\d+)\)|\[(\d+)\]|^(\d+)\s/);
+      const nextCount = service.supportsBadgeDetection && service.notificationSettings?.badgeEnabled
+        ? Number(match?.[1] ?? match?.[2] ?? match?.[3] ?? 0) : 0;
+      const previousCount = serviceBadgeCounts[serviceId] ?? 0;
+      serviceBadgeCounts[serviceId] = nextCount;
+      if (nextCount > previousCount) deliverServiceNotification(serviceId, {
+        source: "badge", title: `${service.name} unread count increased`, body: `${nextCount} unread items`
+      });
+      broadcastRuntime();
+    },
+    onError: (serviceId, error) => console.error(`Service ${serviceId}:`, error)
   });
+  serviceManager.sync(getAppState());
+};
+
+ipcMain.handle("services:get-runtime", (event) => isAppShell(event.sender) ? runtimeSnapshot() : { services: {} });
+ipcMain.handle("services:set-zoom", (event, { serviceId, zoomFactor } = {}) => {
+  if (!isAppShell(event.sender)) return getAppState();
+  const service = getAppState().services.find((item) => item.id === serviceId);
+  if (!service) return getAppState();
+  const state = upsertService({ ...service, zoomFactor: clampServiceZoom(zoomFactor) });
+  broadcastState(state);
+  return state;
+});
+ipcMain.on("services:set-viewport", (event, viewport) => {
+  const state = getAppState();
+  const host = currentServiceHost(state);
+  if (!host || host.isDestroyed() || host.webContents !== event.sender || viewport?.serviceId !== state.ui.activeServiceId) return;
+  const supplied = viewport.bounds;
+  if (!supplied || ![supplied.x, supplied.y, supplied.width, supplied.height].every(Number.isFinite)) return;
+  const [width, height] = host.getContentSize();
+  const x = Math.max(0, Math.min(width, Math.round(supplied.x)));
+  const y = Math.max(0, Math.min(height, Math.round(supplied.y)));
+  const right = Math.max(x, Math.min(width, Math.round(supplied.x + supplied.width)));
+  const bottom = Math.max(y, Math.min(height, Math.round(supplied.y + supplied.height)));
+  serviceViewports.set(event.sender.id, {
+    windowId: host.id, serviceId: viewport.serviceId,
+    bounds: { x, y, width: right - x, height: bottom - y },
+    obscured: Boolean(viewport.obscured) || right <= x || bottom <= y
+  });
+  presentManagedService();
+});
+ipcMain.on("guest:edited", (event, edited) => {
+  if (edited === true) serviceManager?.markEdited(event.sender.id);
+});
+ipcMain.on("guest:notification", (event, payload) => {
+  const serviceId = serviceManager?.getServiceIdForContents(event.sender.id);
+  const service = getAppState().services.find((item) => item.id === serviceId && item.isEnabled);
+  if (!service?.notificationSettings?.captureWebNotifications) return;
+  deliverServiceNotification(serviceId, { source: "web-notification", title: payload?.title, body: payload?.body });
 });
 
 ipcMain.handle("app-state:get", () => getAppState());
@@ -1146,7 +1312,7 @@ ipcMain.handle("ui:set-sidebar-collapsed", (_event, collapsed) => {
 });
 
 ipcMain.handle("ui:set-window-mode", async (_event, mode) => {
-  const nextMode = mode === "dock" ? "dock" : "full";
+  const nextMode = supportsDockMode() && mode === "dock" ? "dock" : "full";
   const state = setUiState({ windowMode: nextMode });
   broadcastState(state);
   await syncWindowMode();
@@ -1159,12 +1325,16 @@ ipcMain.handle("ui:set-dock-corner", (_event, corner) => {
   const state = setUiState({
     dockCorner: supportedCorner.has(corner) ? corner : "bottom-left"
   });
-  applyDockTriggerBounds();
-  applyDockBounds();
-  applyBubbleBounds();
+  if (supportsDockMode()) {
+    applyDockTriggerBounds();
+    applyDockBounds();
+    applyBubbleBounds();
+  }
   broadcastState(state);
   updateTrayMenu();
-  syncDockVisibility().catch(() => {});
+  if (supportsDockMode()) {
+    syncDockVisibility().catch(() => {});
+  }
   return state;
 });
 
@@ -1173,16 +1343,26 @@ ipcMain.handle("ui:set-dock-height", (_event, height) => {
     dockHeight: clampDockHeight(height)
   });
 
-  applyDockTriggerBounds();
-  applyDockBounds();
-  applyBubbleBounds();
+  if (supportsDockMode()) {
+    applyDockTriggerBounds();
+    applyDockBounds();
+    applyBubbleBounds();
+  }
   broadcastState(state);
   updateTrayMenu();
-  syncDockVisibility().catch(() => {});
+  if (supportsDockMode()) {
+    syncDockVisibility().catch(() => {});
+  }
   return state;
 });
 
 ipcMain.handle("ui:set-dock-expanded", async (_event, expanded) => {
+  if (!supportsDockMode()) {
+    const state = setUiState({ windowMode: "full", dockExpanded: true });
+    broadcastState(state);
+    await syncWindowMode();
+    return state;
+  }
   const state = setUiState({ dockExpanded: Boolean(expanded) });
   if (state.ui.windowMode === "dock") {
     if (expanded) {
@@ -1196,12 +1376,16 @@ ipcMain.handle("ui:set-dock-expanded", async (_event, expanded) => {
       hideDockToTrigger();
     }
   }
-  broadcastState(state);
+  const latestState = getAppState();
+  broadcastState(latestState);
   updateTrayMenu();
-  return state;
+  return latestState;
 });
 
 ipcMain.handle("ui:open-dock-from-trigger", async () => {
+  if (!supportsDockMode()) {
+    return showFullApp();
+  }
   const state = setUiState({
     windowMode: "dock",
     dockExpanded: true
@@ -1214,6 +1398,15 @@ ipcMain.handle("ui:open-dock-from-trigger", async () => {
   await revealDockFromTrigger();
   updateTrayMenu();
   return getAppState();
+});
+
+ipcMain.handle("ui:set-bubble-size", (_event, size) => {
+  const state = setUiState({ bubbleSize: normalizePreferredBubbleSize(size) });
+  if (supportsDockMode()) {
+    applyBubbleBounds();
+  }
+  broadcastState(state);
+  return state;
 });
 
 ipcMain.handle("webviews:refresh-active", () => requestActiveWebviewRefresh());
@@ -1273,35 +1466,20 @@ const recordNotificationEvent = (payload) => {
   return state;
 };
 
-ipcMain.handle("notifications:service-event", (_event, payload) => {
+const deliverServiceNotification = (serviceId, payload = {}) => {
   const state = getAppState();
-  const service = state.services.find((item) => item.id === payload.serviceId && item.isEnabled);
-  if (payload.serviceId && !service) {
-    return false;
-  }
-
-  recordNotificationEvent({
-    serviceId: payload.serviceId,
-    serviceName: payload.serviceName || service?.name || "Comms App",
-    source: payload.source || "activity",
-    title: payload.title || payload.serviceName || service?.name || "Comms App",
-    body: payload.message || payload.body || "New activity detected"
-  });
-
-  if (
-    !state.ui.notificationsEnabled ||
-    !service?.notificationSettings?.desktopEnabled ||
-    !Notification.isSupported()
-  ) {
-    return false;
-  }
-
-  new Notification({
-    title: payload.title || payload.serviceName || service?.name || "Comms App",
-    body: payload.message || payload.body || "New activity detected"
-  }).show();
-
+  const service = state.services.find((item) => item.id === serviceId && item.isEnabled);
+  if (!service) return false;
+  const title = String(payload.title || service.name).slice(0, 2000);
+  const body = String(payload.message || payload.body || "New activity detected").slice(0, 4000);
+  recordNotificationEvent({ serviceId, serviceName: service.name, source: payload.source || "activity", title, body });
+  if (!state.ui.notificationsEnabled || !service.notificationSettings?.desktopEnabled || !Notification.isSupported()) return false;
+  new Notification({ title, body }).show();
   return true;
+};
+ipcMain.handle("notifications:service-event", (event, payload) => {
+  if (!isAppShell(event.sender)) return false;
+  return deliverServiceNotification(payload?.serviceId, { ...payload, source: "test" });
 });
 
 ipcMain.handle("notifications:clear-history", () => {
@@ -1316,22 +1494,29 @@ ipcMain.handle("notifications:mark-seen", (_event, serviceId) => {
   return state;
 });
 
-ipcMain.handle("paths:get-guest-preload", () => guestPreloadPath.replace(/\\/g, "/"));
-
 app.whenReady().then(() => {
+  initializeServiceManager();
   configureKnownSessions();
+  const normalizedState = normalizeUnsupportedDockMode();
+  broadcastState(normalizedState);
   ensureTray();
   setInterval(() => {
     flushKnownSessions().catch(() => {});
   }, 30000);
   screen.on("display-metrics-changed", () => {
-    restoreDockWindows();
+    if (supportsDockMode()) {
+      restoreDockWindows();
+    }
   });
   screen.on("display-added", () => {
-    restoreDockWindows();
+    if (supportsDockMode()) {
+      restoreDockWindows();
+    }
   });
   screen.on("display-removed", () => {
-    restoreDockWindows();
+    if (supportsDockMode()) {
+      restoreDockWindows();
+    }
   });
   syncWindowMode().catch((error) => {
     writeStartupDiagnostic("Failed to create main window.", error);
@@ -1371,7 +1556,9 @@ app.on("window-all-closed", () => {
 
 app.on("activate", () => {
   ensureTray();
-  restoreDockWindows();
+  if (supportsDockMode()) {
+    restoreDockWindows();
+  }
   if (BrowserWindow.getAllWindows().length === 0) {
     syncWindowMode().catch((error) => {
       console.error("Failed to recreate main window.", error);

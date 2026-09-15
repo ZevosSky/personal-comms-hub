@@ -42,6 +42,14 @@ jobs:
       - name: Run smoke checks
         run: npm run smoke
 
+      - name: Run Electron integration checks (Windows)
+        if: runner.os == 'Windows'
+        run: npm run test:electron
+
+      - name: Run Electron integration checks (Linux)
+        if: runner.os == 'Linux'
+        run: xvfb-run -a npm run test:electron
+
   build:
     name: Build ${{ matrix.label }}
     needs: smoke

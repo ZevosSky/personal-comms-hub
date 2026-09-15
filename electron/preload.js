@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from "electron";
+const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("commsApp", {
   getState: () => ipcRenderer.invoke("app-state:get"),
@@ -12,6 +12,10 @@ contextBridge.exposeInMainWorld("commsApp", {
   setWindowMode: (mode) => ipcRenderer.invoke("ui:set-window-mode", mode),
   setDockCorner: (corner) => ipcRenderer.invoke("ui:set-dock-corner", corner),
   setDockHeight: (height) => ipcRenderer.invoke("ui:set-dock-height", height),
+  setBubbleSize: (size) => ipcRenderer.invoke("ui:set-bubble-size", size),
+  setServiceZoom: (serviceId, zoomFactor) => ipcRenderer.invoke("services:set-zoom", { serviceId, zoomFactor }),
+  setServiceViewport: (viewport) => ipcRenderer.send("services:set-viewport", viewport),
+  getServiceRuntime: () => ipcRenderer.invoke("services:get-runtime"),
   setDockExpanded: (expanded) => ipcRenderer.invoke("ui:set-dock-expanded", expanded),
   openDockFromTrigger: () => ipcRenderer.invoke("ui:open-dock-from-trigger"),
   refreshActiveWebview: () => ipcRenderer.invoke("webviews:refresh-active"),
@@ -22,15 +26,19 @@ contextBridge.exposeInMainWorld("commsApp", {
   notifyServiceEvent: (payload) => ipcRenderer.invoke("notifications:service-event", payload),
   markNotificationsSeen: (serviceId) => ipcRenderer.invoke("notifications:mark-seen", serviceId),
   clearNotificationHistory: () => ipcRenderer.invoke("notifications:clear-history"),
-  getGuestPreloadPath: () => ipcRenderer.invoke("paths:get-guest-preload"),
   onStateUpdated: (callback) => {
     const listener = (_event, state) => callback(state);
     ipcRenderer.on("state:updated", listener);
     return () => ipcRenderer.removeListener("state:updated", listener);
   },
-  onRefreshActiveWebview: (callback) => {
-    const listener = (_event, payload) => callback(payload);
-    ipcRenderer.on("webview:refresh-active", listener);
-    return () => ipcRenderer.removeListener("webview:refresh-active", listener);
+  onServiceRuntimeUpdated: (callback) => {
+    const listener = (_event, state) => callback(state);
+    ipcRenderer.on("services:runtime-updated", listener);
+    return () => ipcRenderer.removeListener("services:runtime-updated", listener);
+  },
+  onServiceViewportRequested: (callback) => {
+    const listener = () => callback();
+    ipcRenderer.on("services:request-viewport", listener);
+    return () => ipcRenderer.removeListener("services:request-viewport", listener);
   }
 });

@@ -255,11 +255,21 @@ That includes:
 - uploaded custom icons
 - persistent Chromium session data for embedded services
 
+## Runtime and Platform Support
+
+The floating dock and pop-out window are temporarily unavailable on Linux. The full app remains supported there through the main window.
+
+Selected and pinned apps stay loaded. Other apps sleep after 10 minutes unless protected by an active edit, media playback, or an unload refusal from the page. Turning the saver off keeps visited apps loaded. Login storage is preserved, although a sleeping app reloads when resumed and pauses its notifications while asleep.
+
+App entries are managed independently and preserve their existing login sessions. The bubble size is saved for the app; the 50–200% page zoom is saved separately for each entry.
+
+### Verification
+
+Run `npm run smoke` for the renderer build and unit checks, then `npm run test:electron` for native lifecycle and production-renderer integration checks. The integration suite uses temporary profiles and local synthetic pages. On a headless Linux system, run it with `xvfb-run -a npm run test:electron`.
+
 ## Things I might add in the future
 
 ------
 
 - animations
-- better setting support for things like dissabling keeping specific tabs open
-- slightly better memeory optimizations / leak checks
 - agregated message center (don't hold your breath on this one)

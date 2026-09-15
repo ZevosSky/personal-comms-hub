@@ -24,6 +24,7 @@ for (const relativePath of [
   "electron/preload.js",
   "electron/guestPreload.js",
   "electron/configStore.js",
+  "electron/serviceManager.js",
   "build/icon.png",
   ".github/workflows/build-installers.yml"
 ]) {
@@ -36,12 +37,12 @@ assert(packageJson.scripts?.["dist:win"], "package.json is missing a dist:win sc
 assert(packageJson.scripts?.["dist:linux"], "package.json is missing a dist:linux script.");
 assert(preloadSource.includes("refreshActiveWebview"), "preload should expose active webview refresh.");
 assert(
-  preloadSource.includes("onRefreshActiveWebview"),
-  "preload should expose active webview refresh events."
+  preloadSource.includes("setServiceViewport") && preloadSource.includes("getServiceRuntime"),
+  "preload should expose managed service layout and runtime state."
 );
 assert(
-  mainSource.includes("webviews:refresh-active") && mainSource.includes("webview:refresh-active"),
-  "main process should bridge active webview refresh requests."
+  mainSource.includes("webviews:refresh-active"),
+  "main process should handle active service refresh requests."
 );
 
 assert(packageJson.build?.win?.target, "Windows packaging target is missing.");

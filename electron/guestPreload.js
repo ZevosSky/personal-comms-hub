@@ -1,4 +1,4 @@
-import { ipcRenderer } from "electron";
+const { ipcRenderer, webFrame } = require("electron");
 
 const bridgeScript = `
   (() => {
@@ -44,10 +44,8 @@ const bridgeScript = `
 `;
 
 window.addEventListener("DOMContentLoaded", () => {
-  const script = document.createElement("script");
-  script.textContent = bridgeScript;
-  document.documentElement.appendChild(script);
-  script.remove();
+  // Execute in the page world without inserting an inline script blocked by site CSP.
+  webFrame.executeJavaScript(bridgeScript).catch(() => {});
 });
 
 window.addEventListener("message", (event) => {
@@ -56,5 +54,28 @@ window.addEventListener("message", (event) => {
   }
 
   const payload = event.data.payload ?? {};
-  ipcRenderer.sendToHost("comms-app-notification", payload);
+  ipcRenderer.send("guest:notification", {
+    title: String(payload.title ?? "").slice(0, 500),
+    body: String(payload.body ?? "").slice(0, 4000),
+    tag: String(payload.tag ?? "").slice(0, 500)
+  });
 });
+
+// This isolated preload also runs in subframes. No field values or keystrokes leave
+// the document; one trusted edit latches protection until main-frame navigation.
+let reportedEdit = false;
+const reportEdit = (event) => {
+  if (reportedEdit || !event.isTrusted) return;
+  const editable = event.composedPath().some((node) => {
+    if (!(node instanceof Element)) return false;
+    if (node.isContentEditable) return true;
+    if (node.matches("textarea, select")) return !node.disabled && !node.readOnly;
+    return node.matches("input") && !node.disabled && !node.readOnly &&
+      !["button", "submit", "reset", "image", "hidden"].includes(node.type);
+  });
+  if (!editable) return;
+  reportedEdit = true;
+  ipcRenderer.send("guest:edited", true);
+};
+window.addEventListener("input", reportEdit, true);
+window.addEventListener("change", reportEdit, true);
