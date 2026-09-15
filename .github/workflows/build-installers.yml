@@ -46,10 +46,6 @@ jobs:
         if: runner.os == 'Windows'
         run: npm run test:electron
 
-      - name: Run Electron integration checks (Linux)
-        if: runner.os == 'Linux'
-        run: xvfb-run -a npm run test:electron
-
   build:
     name: Build ${{ matrix.label }}
     needs: smoke
@@ -65,13 +61,6 @@ jobs:
               release/*.exe
               release/*.blockmap
               release/latest.yml
-          - os: ubuntu-latest
-            label: Linux
-            package_command: npx electron-builder --linux AppImage tar.gz --x64 --publish never
-            artifact_glob: |
-              release/*.AppImage
-              release/*.tar.gz
-              release/latest-linux.yml
 
     steps:
       - name: Check out repository
@@ -118,11 +107,10 @@ jobs:
         with:
           name: Comms Hub ${{ github.ref_name }}
           body: |
-            Download the installer for your system:
+            Download the Windows installer:
 
             - Windows: `Comms Hub Setup <version>.exe`
-            - Linux: `Comms Hub-<version>.AppImage`
-            - Linux fallback: `Comms Hub-<version>.tar.gz`
+            - Linux packages are temporarily disabled while Linux support is being repaired.
 
             Other files:
 
@@ -132,6 +120,4 @@ jobs:
             release-assets/*.exe
             release-assets/*.blockmap
             release-assets/*.yml
-            release-assets/*.AppImage
-            release-assets/*.tar.gz
           generate_release_notes: true

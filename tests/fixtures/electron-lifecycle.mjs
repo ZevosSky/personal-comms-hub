@@ -36,7 +36,6 @@ const managers = new Set();
 const notifications = [];
 const mediaRequests = [];
 const configuredSessions = new WeakSet();
-const showTestWindows = process.platform === "linux" && Boolean(process.env.CI);
 let server;
 let origin;
 
@@ -276,13 +275,13 @@ await startServer();
 
 try {
   fullWindow = trackWindow(new BrowserWindow({
-    show: showTestWindows,
+    show: false,
     width: 1100,
     height: 850,
     webPreferences: { sandbox: true, nodeIntegration: false, contextIsolation: true, backgroundThrottling: false }
   }));
   bubbleWindow = trackWindow(new BrowserWindow({
-    show: showTestWindows,
+    show: false,
     width: 900,
     height: 700,
     webPreferences: { sandbox: true, nodeIntegration: false, contextIsolation: true, backgroundThrottling: false }
@@ -290,7 +289,7 @@ try {
 
   await run("sandboxed shell preload exposes the commsApp API", async () => {
     shellWindow = trackWindow(new BrowserWindow({
-      show: showTestWindows,
+      show: false,
       width: 640,
       height: 480,
       webPreferences: {

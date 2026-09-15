@@ -9,7 +9,6 @@ Comms Hub is an Electron + React desktop app for keeping several web-based messa
 - Node.js 20+ recommended
 - npm
 - Windows for the current Windows installer flow
-- Linux or WSL with Linux-native `node`/`npm` if you want to build Linux packages
 
 ### Install Dependencies
 
@@ -97,7 +96,6 @@ They support:
 - `smoke`
 - `dist`
 - `dist:win`
-- `dist:linux`
 
 To show their built-in help:
 
@@ -139,27 +137,7 @@ release/Comms Hub Setup <version>.exe
 
 ### Linux Packages
 
-Build the Linux AppImage and tar.gz fallback archive:
-
-```bash
-npm run dist:linux
-```
-
-Or:
-
-```bash
-./build.sh dist:linux
-```
-
-Note:
-- run `npm install` first so local `electron` and `electron-builder` are present
-- prefer `npm run dist:linux` over raw `npx electron-builder --linux`
-- this works best on Linux or in WSL using Linux-native `node` and `npm`
-- if WSL is accidentally using Windows `node`, the AppImage step can fail with Windows-path tool errors
-- AppImage launch can fail on desktops without FUSE/AppImage support
-- use the `tar.gz` artifact as the desktop-environment-neutral fallback on KDE Plasma, GNOME, Xfce, or other Linux desktops
-- if Linux launch fails, run the AppImage or unpacked archive executable from a terminal to capture the startup error
-- startup failures are also appended to `startup.log` in the app config directory
+Linux packages and runtime support are temporarily disabled while Linux startup is being repaired. The current release workflow does not publish Linux artifacts.
 
 ### Generic Packaging Command
 
@@ -184,8 +162,8 @@ build.bat dist
 This repo includes a GitHub Actions workflow at [.github/workflows/build-installers.yml](C:/Users/Gary%20Yang/Documents/CommsApp/.github/workflows/build-installers.yml) that:
 
 - builds the Windows installer on `windows-latest`
-- builds the Linux AppImage and tar.gz fallback on `ubuntu-latest`
-- runs smoke checks on both Windows and Linux first
+- runs renderer and unit smoke checks on both Windows and Linux
+- runs Electron integration checks on Windows
 - uploads installer outputs as workflow artifacts
 - publishes a GitHub Release automatically only for version tags like `v1.2.2`
 
@@ -229,7 +207,7 @@ git push origin v1.2.2
 What happens next:
 
 - the GitHub Actions workflow runs smoke checks
-- it builds the Windows and Linux installers
+- it builds the Windows installer
 - it creates a GitHub Release for that tag
 - it uploads the generated installer files to the release
 
@@ -257,7 +235,7 @@ That includes:
 
 ## Runtime and Platform Support
 
-The floating dock and pop-out window are temporarily unavailable on Linux. The full app remains supported there through the main window.
+Linux builds and runtime support are temporarily disabled while startup behavior is being repaired.
 
 Selected and pinned apps stay loaded. Other apps sleep after 10 minutes unless protected by an active edit, media playback, or an unload refusal from the page. Turning the saver off keeps visited apps loaded. Login storage is preserved, although a sleeping app reloads when resumed and pauses its notifications while asleep.
 
@@ -265,7 +243,7 @@ App entries are managed independently and preserve their existing login sessions
 
 ### Verification
 
-Run `npm run smoke` for the renderer build and unit checks, then `npm run test:electron` for native lifecycle and production-renderer integration checks. The integration suite uses temporary profiles and local synthetic pages. On a headless Linux system, run it with `xvfb-run -a npm run test:electron`.
+Run `npm run smoke` for the renderer build and unit checks, then `npm run test:electron` on Windows for native lifecycle and production-renderer integration checks. The integration suite uses temporary profiles and local synthetic pages.
 
 ## Things I might add in the future
 

@@ -14,11 +14,6 @@ if (path.isAbsolute(fixtureRelative) || fixtureRelative.startsWith(`..${path.sep
   throw new Error(`Electron test fixture must be inside the repository: ${fixture}`);
 }
 const electronExecutable = require("electron");
-const electronArguments = [];
-if (process.platform === "linux" && process.env.CI) {
-  electronArguments.push("--no-sandbox");
-}
-electronArguments.push(fixture);
 const temporaryRoot = path.resolve(os.tmpdir());
 const runRoot = path.resolve(await mkdtemp(path.join(temporaryRoot, "comms-hub-electron-")));
 const userData = path.join(runRoot, "user-data");
@@ -43,7 +38,7 @@ await Promise.all([
 ]);
 
 const { ELECTRON_RUN_AS_NODE: _electronRunAsNode, ...environment } = process.env;
-const child = spawn(electronExecutable, electronArguments, {
+const child = spawn(electronExecutable, [fixture], {
   cwd: root,
   env: {
     ...environment,

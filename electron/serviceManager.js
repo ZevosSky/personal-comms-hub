@@ -87,12 +87,12 @@ export function createServiceManager({
       if (entry.host && (!visible || entry.host !== host)) detach(entry);
       if (!visible) continue;
       try {
-        entry.view.setBounds(bounds);
-        entry.view.setBorderRadius?.(Math.max(0, Number(borderRadius) || 0));
         if (!entry.host) {
           host.contentView.addChildView(entry.view);
           entry.host = host;
         }
+        entry.view.setBounds(bounds);
+        entry.view.setBorderRadius?.(Math.max(0, Number(borderRadius) || 0));
       } catch (error) { onError(entry.id, error); }
     }
   };
