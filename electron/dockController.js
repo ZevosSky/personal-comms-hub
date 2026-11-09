@@ -27,6 +27,17 @@ export const createCoalescedAsyncRunner = (task) => {
   };
 };
 
+/**
+ * What one dock visibility pass should do. Visibility only changes through IPC and window
+ * events, so there is no polling: a collapsed dock hides to the trigger unless a dock surface
+ * still has focus, in which case its blur event runs the next pass.
+ */
+export const planDockVisibility = ({ dockModeSupported, windowMode, dockExpanded, dockSurfaceFocused }) => {
+  if (!dockModeSupported || windowMode !== "dock") return "hide-all";
+  if (dockExpanded) return "reveal";
+  return dockSurfaceFocused ? "wait" : "collapse";
+};
+
 export const applyBoundsIfChanged = (windowInstance, bounds) => {
   if (!windowInstance || windowInstance.isDestroyed() || equalBounds(windowInstance.getBounds(), bounds)) {
     return false;

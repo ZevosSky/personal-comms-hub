@@ -3,6 +3,7 @@ import {
   applyBoundsIfChanged,
   configureUtilityWindowOnce,
   createCoalescedAsyncRunner,
+  planDockVisibility,
   setUtilityWindowVisibility
 } from "../electron/dockController.js";
 import {
@@ -133,5 +134,19 @@ const reentrantSync = createCoalescedAsyncRunner(async () => {
 await reentrantSync();
 assert.equal(reentrantPasses, 2);
 assert.equal(maxDepth, 1, "native events must not reenter a running visibility pass");
+
+const dockPlan = (overrides) => planDockVisibility({
+  dockModeSupported: true,
+  windowMode: "dock",
+  dockExpanded: false,
+  dockSurfaceFocused: false,
+  ...overrides
+});
+assert.equal(dockPlan({ dockModeSupported: false }), "hide-all");
+assert.equal(dockPlan({ windowMode: "full", dockExpanded: true }), "hide-all");
+assert.equal(dockPlan({ dockExpanded: true }), "reveal");
+assert.equal(dockPlan({ dockExpanded: true, dockSurfaceFocused: true }), "reveal");
+assert.equal(dockPlan({}), "collapse");
+assert.equal(dockPlan({ dockSurfaceFocused: true }), "wait", "a focused dock waits for its blur event");
 
 console.log("Window behavior tests passed.");

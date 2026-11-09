@@ -10,8 +10,13 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Read-only by default; only the release job can write (it creates the GitHub Release).
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
 jobs:
   smoke:
@@ -37,7 +42,7 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
 
       - name: Run smoke checks
         run: npm run smoke
@@ -66,6 +71,14 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      # Installed copies compare the release tag with their own version, so a tag that does not
+      # match package.json would make every user see "update available" forever.
+      - name: Check tag matches package.json version
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          node -e "const v = 'v' + require('./package.json').version; if (v !== process.env.GITHUB_REF_NAME) { console.error('Tag ' + process.env.GITHUB_REF_NAME + ' does not match package.json version ' + v); process.exit(1); }"
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
@@ -73,7 +86,7 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
 
       - name: Build renderer
         run: npm run build
@@ -93,6 +106,8 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Download build artifacts
@@ -103,7 +118,8 @@ jobs:
           merge-multiple: true
 
       - name: Publish release
-        uses: softprops/action-gh-release@v2
+        # Third-party action pinned to a commit (v2.6.2) because this job holds a write token.
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
         with:
           name: Comms Hub ${{ github.ref_name }}
           body: |
