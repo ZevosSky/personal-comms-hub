@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - master
+      - dev
     tags:
       - "v*"
   pull_request:
@@ -26,7 +27,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
+          - os: ubuntu-24.04
             label: Linux
           - os: windows-latest
             label: Windows
@@ -44,12 +45,31 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Download native Electron test runtime
+        run: node node_modules/electron/install.js
+
+      - name: Install Linux desktop dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y dbus-x11 dunst openbox wmctrl xvfb xauth x11-utils libasound2t64 libgbm1 libgtk-3-0t64 libnotify4 libnss3 libxss1
+
+      - name: Configure Linux Chromium sandbox
+        if: runner.os == 'Linux'
+        run: |
+          sudo chown root:root node_modules/electron/dist/chrome-sandbox
+          sudo chmod 4755 node_modules/electron/dist/chrome-sandbox
+
       - name: Run smoke checks
         run: npm run smoke
 
       - name: Run Electron integration checks (Windows)
         if: runner.os == 'Windows'
         run: npm run test:electron
+
+      - name: Run Electron integration checks (Linux)
+        if: runner.os == 'Linux'
+        run: sh scripts/run-linux-desktop-tests.sh npm run test:electron
 
   build:
     name: Build ${{ matrix.label }}
@@ -66,6 +86,14 @@ jobs:
               release/*.exe
               release/*.blockmap
               release/latest.yml
+          - os: ubuntu-24.04
+            label: Linux
+            package_command: npx electron-builder --linux deb rpm tar.gz --x64 --publish never
+            artifact_glob: |
+              release/*.deb
+              release/*.rpm
+              release/*.tar.gz
+              release/latest-linux.yml
 
     steps:
       - name: Check out repository
@@ -88,11 +116,48 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Install Linux desktop dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y dbus-x11 dunst openbox wmctrl xvfb xauth x11-utils libasound2t64 libgbm1 libgtk-3-0t64 libnotify4 libnss3 libxss1 rpm
+
       - name: Build renderer
         run: npm run build
 
       - name: Package installer
         run: ${{ matrix.package_command }}
+
+      - name: Configure packaged Linux Chromium sandbox
+        if: runner.os == 'Linux'
+        run: |
+          sudo chown root:root release/linux-unpacked/chrome-sandbox
+          sudo chmod 4755 release/linux-unpacked/chrome-sandbox
+
+      - name: Verify packaged Linux startup
+        if: runner.os == 'Linux'
+        run: sh scripts/run-linux-desktop-tests.sh npm run test:packaged
+
+      - name: Install Debian package and verify desktop integration
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get install --no-install-recommends -y ./release/*.deb
+          test -x '/opt/Comms Hub/comms-app'
+          test "$(stat -c '%U:%G' '/opt/Comms Hub/chrome-sandbox')" = root:root
+          grep -Fx 'StartupWMClass=com.garyyang.commshub' /usr/share/applications/com.garyyang.commshub.desktop
+
+      - name: Verify installed Linux startup
+        if: runner.os == 'Linux'
+        run: sh scripts/run-linux-desktop-tests.sh npm run test:packaged -- '/opt/Comms Hub/comms-app'
+
+      - name: Verify RPM sandbox and desktop integration
+        if: runner.os == 'Linux'
+        run: |
+          for package in release/*.rpm; do
+            rpm -qp --queryformat '[%{FILENAMES}|%{FILEUSERNAME}|%{FILEGROUPNAME}\n]' "$package" | grep -Fx '/opt/Comms Hub/chrome-sandbox|root|root'
+            rpm -qpl "$package" | grep -Fx /usr/share/applications/com.garyyang.commshub.desktop
+            rpm -qp --scripts "$package" | grep -F "chmod 4755 '/opt/Comms Hub/chrome-sandbox'"
+          done
 
       - name: Upload installer artifacts
         uses: actions/upload-artifact@v4
@@ -123,10 +188,12 @@ jobs:
         with:
           name: Comms Hub ${{ github.ref_name }}
           body: |
-            Download the Windows installer:
+            Download the package for your system:
 
             - Windows: `Comms Hub Setup <version>.exe`
-            - Linux packages are temporarily disabled while Linux support is being repaired.
+            - Ubuntu/Debian: `comms-app_<version>_amd64.deb`
+            - Fedora: `comms-app-<version>.x86_64.rpm`
+            - Linux fallback: `comms-app-<version>.tar.gz`
 
             Other files:
 
@@ -136,4 +203,7 @@ jobs:
             release-assets/*.exe
             release-assets/*.blockmap
             release-assets/*.yml
+            release-assets/*.deb
+            release-assets/*.rpm
+            release-assets/*.tar.gz
           generate_release_notes: true

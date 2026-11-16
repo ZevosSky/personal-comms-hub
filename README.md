@@ -9,6 +9,7 @@ Comms Hub is an Electron + React desktop app for keeping several web-based messa
 - Node.js 22.12 or newer (Electron 44's installer requires it)
 - npm
 - Windows for the current Windows installer flow
+- Linux x64 with a graphical desktop for the Linux app and native Linux Node.js/npm for Linux builds (including WSL)
 
 ### Install Dependencies
 
@@ -98,6 +99,7 @@ They support:
 - `smoke`
 - `dist`
 - `dist:win`
+- `dist:linux`
 
 To show their built-in help:
 
@@ -139,7 +141,38 @@ release/Comms Hub Setup <version>.exe
 
 ### Linux Packages
 
-Linux packages and runtime support are temporarily disabled while Linux startup is being repaired. The current release workflow does not publish Linux artifacts.
+For Ubuntu/GNOME or Debian, install the `.deb` package from Releases:
+
+```bash
+sudo apt install "./comms-app_<version>_amd64.deb"
+```
+
+For Fedora/KDE, install the `.rpm` package:
+
+```bash
+sudo dnf install "./comms-app-<version>.x86_64.rpm"
+```
+
+Then open **Comms Hub** from the desktop launcher, or run `comms-app`. These packages install the application's sandbox support and desktop entry. A tar.gz archive is also available for portable use.
+
+Build all three Linux x64 packages on Linux or WSL, using Linux-native Node.js and npm (building RPM packages also needs your distribution's `rpm` tools):
+
+```bash
+npm ci
+npm run dist:linux
+```
+
+Or run `./build.sh dist:linux` after installing dependencies. The packages are written to `release/`. Do not reuse a Windows `node_modules` directory in WSL; run `npm ci` in a separate Linux checkout.
+
+To launch the portable archive:
+
+```bash
+mkdir comms-hub
+tar -xzf "comms-app-<version>.tar.gz" -C comms-hub --strip-components=1
+./comms-hub/comms-app
+```
+
+Electron's Chromium sandbox must be available. Some distributions restrict unprivileged user namespaces, including Ubuntu 24.04's AppArmor policy, which can prevent portable Electron apps from starting. Prefer the `.deb` package on Ubuntu: its installer configures an application-specific AppArmor profile on supported systems and the sandbox helper where needed. Do not disable the sandbox or system-wide protections. If asking for help, include terminal output from launching the app.
 
 ### Generic Packaging Command
 
@@ -164,14 +197,16 @@ build.bat dist
 This repo includes a GitHub Actions workflow at [.github/workflows/build-installers.yml](.github/workflows/build-installers.yml) that:
 
 - builds the Windows installer on `windows-latest`
+- builds Linux x64 deb, rpm and tar.gz packages on `ubuntu-24.04`
 - runs renderer and unit smoke checks on both Windows and Linux
-- runs Electron integration checks on Windows
-- uploads installer outputs as workflow artifacts
+- runs native Electron integration checks on Windows and on a Linux X11 desktop with D-Bus, Xvfb, Openbox and Dunst notifications
+- checks that the unpacked Linux executable and installed Debian package load the production renderer and an embedded service, and verifies RPM sandbox/desktop metadata
+- uploads package outputs as workflow artifacts only after checks pass
 - publishes a GitHub Release automatically only for version tags like `v1.2.2`
 
 It runs on:
 
-- pushes to `main` or `master`
+- pushes to `main`, `master` or `dev`
 - pushes of version tags like `v1.2.2`
 - pull requests
 - manual `workflow_dispatch`
@@ -209,7 +244,7 @@ git push origin v1.2.2
 What happens next:
 
 - the GitHub Actions workflow runs smoke checks
-- it builds the Windows installer
+- it builds the Windows installer and Linux packages
 - it creates a GitHub Release for that tag
 - it uploads the generated installer files to the release
 
@@ -235,6 +270,8 @@ That includes:
 - persistent Chromium session data for embedded services
 
 Runs from source use `%APPDATA%\Comms Hub Dev` (`npm run dev`) or `%APPDATA%\Comms Hub Local` (`npm start`) instead.
+
+On Linux the equivalent profiles are under `$XDG_CONFIG_HOME` (normally `~/.config/`): `Comms Hub`, `Comms Hub Dev` and `Comms Hub Local`.
 
 If the settings file is ever damaged, Comms Hub moves it aside as `comms-app-config.corrupt-<timestamp>.json` and starts from defaults, so nothing is lost. Notification history is kept in memory only.
 
@@ -303,11 +340,21 @@ Each app keeps its own sign-in. The bubble size is saved for the whole app; the 
 
 ### Platform Support
 
-Linux builds and runtime support are temporarily disabled while startup behavior is being repaired.
+Windows supports the full window and floating dock. Linux x64 uses the full window; floating dock/pop-out mode and automatic launch at login are unavailable on Linux. Ubuntu/GNOME and Fedora/KDE have native packages. Tray availability depends on the desktop environment; if creating the tray icon fails, the app keeps a visible window instead of starting hidden. GNOME may require an AppIndicator extension to display tray icons. Screen sharing on Wayland also depends on the desktop's PipeWire/portal support. System-audio capture is offered on Windows only. Automated Linux checks use an X11 desktop; GNOME/KDE and native Wayland behavior should also be checked on the target desktop before relying on calls or screen sharing.
 
 ### Verification
 
-Run `npm run smoke` for the renderer build and unit checks, then `npm run test:electron` on Windows for native lifecycle and production-renderer integration checks. The integration suite uses temporary profiles and local synthetic pages.
+Run `npm run smoke` for the renderer build and unit checks, then `npm run test:electron` for native lifecycle and production-renderer integration checks. The integration suite uses temporary profiles and local synthetic pages; on Linux it also verifies real native notification delivery.
+
+For headless Linux checks, install D-Bus, Xvfb, xauth, Openbox, wmctrl, xprop (`x11-utils`), Dunst and libnotify, and run:
+
+```bash
+sh scripts/run-linux-desktop-tests.sh npm run test:electron
+```
+
+The wrapper starts its own X server, D-Bus session, window manager and notification daemon and preserves the test's exit status. It does not disable Chromium's sandbox. On Ubuntu 24.04 the CI runner configures only Electron's own `chrome-sandbox` helper as root-owned with mode `4755`; no global sandbox policy is changed.
+
+After `npm run dist:linux`, run `sh scripts/run-linux-desktop-tests.sh npm run test:packaged` to verify startup of the packaged Linux executable. CI also installs the Debian package and runs the same check against `/opt/Comms Hub/comms-app`. These checks use a temporary profile and a local test service; they do not sign in to live messaging services.
 
 ## Things I might add in the future
 

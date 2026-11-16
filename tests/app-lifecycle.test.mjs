@@ -57,6 +57,12 @@ test("hidden starts: login item argument, start-minimized setting or macOS login
   assert.equal(shouldStartHidden({ argv: [], startMinimized: "yes" }), false);
 });
 
+test("a desktop without a tray always opens a recoverable window", () => {
+  assert.equal(shouldStartHidden({ startMinimized: true, trayAvailable: false }), false);
+  assert.equal(shouldStartHidden({ argv: [START_HIDDEN_ARG], trayAvailable: false }), false);
+  assert.equal(shouldStartHidden({ wasOpenedAtLogin: true, trayAvailable: false }), false);
+});
+
 test("login items are registered only for packaged Windows/macOS builds", () => {
   const execPath = "C:\\Program Files\\Comms Hub\\Comms Hub.exe";
   assert.deepEqual(loginItemSettingsFor({ platform: "win32", isPackaged: true, execPath, openAtLogin: true }), {

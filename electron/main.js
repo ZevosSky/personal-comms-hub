@@ -2884,7 +2884,8 @@ const applyHiddenStart = () => {
   startHidden = shouldStartHidden({
     argv: process.argv,
     startMinimized: ui.startMinimized,
-    wasOpenedAtLogin: wasOpenedAtLogin()
+    wasOpenedAtLogin: wasOpenedAtLogin(),
+    trayAvailable: trayController.isActive()
   });
   if (startHidden && ui.windowMode === "dock" && supportsDockMode()) {
     setUiState({ dockExpanded: false });
@@ -2924,9 +2925,9 @@ const startPrimaryInstance = () => {
     notifyConfigLoadIssue();
     configureKnownSessions();
     normalizeUnsupportedDockMode();
+    ensureTray();
     applyHiddenStart();
     broadcastState();
-    ensureTray();
     setInterval(() => {
       flushKnownSessions().catch(() => {});
     }, sessionFlushIntervalMs);
@@ -2953,6 +2954,9 @@ const startPrimaryInstance = () => {
         writeStartupDiagnostic("Failed to create main window.", error);
         app.quit();
       });
+  }).catch((error) => {
+    writeStartupDiagnostic("Failed to start Comms Hub.", error);
+    app.quit();
   });
 
   app.on("before-quit", (event) => {

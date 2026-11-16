@@ -134,12 +134,13 @@ assert(packageJson.build?.win?.target, "Windows packaging target is missing.");
 assert(packageJson.build?.nsis?.createStartMenuShortcut === true, "NSIS Start Menu shortcut should be enabled.");
 assert(packageJson.build?.nsis?.createDesktopShortcut, "NSIS Desktop shortcut should be enabled.");
 
-// Linux packaging is currently disabled; check its targets only while it is configured.
+// Linux installers must cover the supported distributions and include a portable fallback.
 if (packageJson.build?.linux) {
   const linuxTargets = (packageJson.build.linux.target ?? []).map((target) =>
     typeof target === "string" ? target : target.target
   );
-  assert(linuxTargets.includes("AppImage"), "Linux AppImage target is missing.");
+  assert(linuxTargets.includes("deb"), "Linux Debian/Ubuntu target is missing.");
+  assert(linuxTargets.includes("rpm"), "Linux Fedora target is missing.");
   assert(linuxTargets.includes("tar.gz"), "Linux tar.gz fallback target is missing.");
 }
 

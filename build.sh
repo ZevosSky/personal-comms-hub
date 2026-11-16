@@ -13,7 +13,7 @@ Usage:
   ./build.sh smoke        - Run the smoke check
   ./build.sh dist         - Build the default packaged app output
   ./build.sh dist:win     - Build the Windows installer
-  ./build.sh dist:linux   - Build the Linux AppImage
+  ./build.sh dist:linux   - Build Linux deb, rpm and tar.gz packages
 
 Common launch commands after building:
   npm start              - Launch the built desktop app

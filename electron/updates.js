@@ -23,6 +23,7 @@ export const getPlatformAsset = (assets = [], platform = process.platform) => {
       asset.name.endsWith(".exe") && !asset.name.endsWith(".blockmap") && !asset.name.toLowerCase().includes("uninstaller")
     ) ?? null;
   }
-  if (platform === "linux") return list.find((asset) => asset.name.endsWith(".AppImage")) ?? null;
+  // Linux has distribution-specific installers. Open the release page so an Ubuntu or
+  // Fedora installation is updated with the matching format instead of a portable binary.
   return null;
 };

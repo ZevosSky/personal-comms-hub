@@ -334,13 +334,13 @@ await startServer();
 
 try {
   fullWindow = trackWindow(new BrowserWindow({
-    show: false,
+    show: process.platform === "linux",
     width: 1100,
     height: 850,
     webPreferences: { sandbox: true, nodeIntegration: false, contextIsolation: true, backgroundThrottling: false }
   }));
   bubbleWindow = trackWindow(new BrowserWindow({
-    show: false,
+    show: process.platform === "linux",
     width: 900,
     height: 700,
     webPreferences: { sandbox: true, nodeIntegration: false, contextIsolation: true, backgroundThrottling: false }
@@ -501,7 +501,11 @@ try {
         services: state.services.map((item) => item.id === primary.id ? { ...item, zoomFactor: factor } : item)
       }));
       await poll(() => Math.abs(primaryRecord.contents.getZoomFactor() - factor) < 0.001, `zoom ${factor} was not applied`);
-      const measured = await viewport(primaryRecord);
+      // Native zoom/bounds are applied before the renderer receives its resize on Linux.
+      const measured = await poll(async () => {
+        const next = await viewport(primaryRecord);
+        return next.innerWidth === expected[0] && next.innerHeight === expected[1] ? next : null;
+      }, `zoom ${factor} did not produce the expected CSS viewport ${expected.join("x")}`);
       assert.deepEqual([measured.innerWidth, measured.innerHeight], expected);
       assert.ok(measured.scrollWidth > measured.innerWidth, "wide fixture should exceed the responsive viewport");
       assert.deepEqual(primaryRecord.view.getBounds(), bounds, "zoom must not alter native view bounds");

@@ -52,7 +52,7 @@ test("update checks compare versions numerically and pick the platform installer
     { nope: true }
   ];
   assert.equal(getPlatformAsset(assets, "win32").name, "Comms-Hub-Setup-1.3.0.exe");
-  assert.equal(getPlatformAsset(assets, "linux").name, "Comms-Hub-1.3.0.AppImage");
+  assert.equal(getPlatformAsset(assets, "linux"), null, "Linux opens the release page to choose a matching package");
   assert.equal(getPlatformAsset(assets, "darwin"), null);
   assert.equal(getPlatformAsset(undefined, "win32"), null);
 });

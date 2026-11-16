@@ -32,8 +32,8 @@ export const resolveDevUserDataPath = ({ isPackaged, isDev, userData, appData, a
 };
 
 /** Start in the tray when launched at login or when the user asked to start minimized. */
-export const shouldStartHidden = ({ argv = [], startMinimized = false, wasOpenedAtLogin = false }) =>
-  argv.includes(START_HIDDEN_ARG) || wasOpenedAtLogin === true || startMinimized === true;
+export const shouldStartHidden = ({ argv = [], startMinimized = false, wasOpenedAtLogin = false, trayAvailable = true }) =>
+  trayAvailable !== false && (argv.includes(START_HIDDEN_ARG) || wasOpenedAtLogin === true || startMinimized === true);
 
 /**
  * Arguments for app.setLoginItemSettings, or null where registering would be wrong: dev runs

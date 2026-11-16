@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import fs from "node:fs/promises";
 import syncFs from "node:fs";
 import http from "node:http";
@@ -17,6 +17,7 @@ app.setPath("sessionData", path.join(userData, "sessions"));
 // Downloads land in the temporary profile, never the user's Downloads folder.
 const downloadsDir = path.join(userData, "downloads");
 app.setPath("downloads", downloadsDir);
+const nativeLinux = process.platform === "linux";
 const simulateLinux = process.argv.includes("--linux") || process.env.COMMS_TEST_LINUX === "1";
 if (simulateLinux) Object.defineProperty(process, "platform", { value: "linux" });
 globalThis.fetch = async () => ({ ok: true, json: async () => ({ tag_name: "v1.2.2", assets: [] }) });
@@ -1117,7 +1118,20 @@ try {
     assert.equal(chrome.isMovable(), true);
     assert.equal(chrome.isResizable(), true);
     assert.equal(chrome.getOpacity(), 1);
-    assert.ok(chrome.getContentBounds().height < chrome.getBounds().height, "the popup has a frame");
+    // X11 window managers apply decorations only after a window is mapped. Other fixture
+    // windows stay hidden, but this check needs the real frame in the private Linux desktop.
+    if (nativeLinux) {
+      BrowserWindow.prototype.showInactive.call(chrome);
+      const windowId = `0x${chrome.getNativeWindowHandle().readUInt32LE(0).toString(16)}`;
+      // X11 decorations belong to the window manager, outside Electron's content/outer bounds.
+      await poll(() => {
+        const frame = execFileSync("xprop", ["-id", windowId, "_NET_FRAME_EXTENTS"], { encoding: "utf8", timeout: 2000 });
+        const extents = frame.match(/=\s*(\d+),\s*(\d+),\s*(\d+),\s*(\d+)/);
+        return extents && Number(extents[3]) > 0;
+      }, "the popup has native X11 titlebar decorations");
+    } else {
+      assert.ok(chrome.getContentBounds().height < chrome.getBounds().height, "the popup has a frame");
+    }
     assert.ok(onScreen(chrome.getBounds()), `inside a work area: ${JSON.stringify(chrome.getBounds())}`);
     await poll(() => chrome.webContents.executeJavaScript("document.readyState === 'complete'"), "chrome popup loaded");
     await chrome.webContents.executeJavaScript("window.moveTo(-6000, -6000); window.resizeTo(9000, 9000); true", true);
