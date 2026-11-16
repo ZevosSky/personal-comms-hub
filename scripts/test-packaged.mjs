@@ -78,13 +78,13 @@ async function devtoolsClient(url) {
     pending.clear();
   });
   const client = {
-    send(method, params = {}) {
+    send(method, params = {}, timeoutMs = 8000) {
       return new Promise((resolve, reject) => {
         const id = ++nextId;
         const timer = setTimeout(() => {
           pending.delete(id);
           reject(new Error(`DevTools ${method} timed out`));
-        }, 8000);
+        }, timeoutMs);
         pending.set(id, { resolve, reject, timer });
         try { socket.send(JSON.stringify({ id, method, params })); }
         catch (error) { pending.delete(id); clearTimeout(timer); reject(error); }
@@ -101,12 +101,23 @@ async function devtoolsClient(url) {
   return client;
 }
 
-async function screenshotSize(client) {
-  const result = await client.send("Page.captureScreenshot", { format: "png" });
+async function screenshotSize(client, label) {
+  // Compositor-surface capture timed out on the Ubuntu Xvfb runner. Activate each native
+  // view and capture its backing view without resizing beyond the visible viewport.
+  let result;
+  try {
+    await client.send("Page.enable");
+    await client.send("Page.bringToFront");
+    result = await client.send("Page.captureScreenshot", {
+      format: "png", fromSurface: false, captureBeyondViewport: false
+    }, 20000);
+  } catch (error) {
+    throw new Error(`${label} screenshot failed: ${error.message}`, { cause: error });
+  }
   const png = Buffer.from(result.data, "base64");
   assert.equal(png.subarray(0, 8).toString("hex"), "89504e470d0a1a0a");
   const size = { width: png.readUInt32BE(16), height: png.readUInt32BE(20) };
-  assert.ok(size.width > 0 && size.height > 0, "the packaged page must paint a nonempty screenshot");
+  assert.ok(size.width > 0 && size.height > 0, `${label} must paint a nonempty screenshot`);
   return size;
 }
 
@@ -181,8 +192,9 @@ try {
     return value.ready && value.width > 0 && value.height > 0 && value;
   }, "painted native service view");
   assert.equal(guestSize.nodeExposed, false, "guest content must not have Node.js access");
-  const screenshots = { shell: await screenshotSize(shellClient), service: await screenshotSize(guestClient) };
-  checks.push("local service loads and paints inside the packaged client without Node.js access");
+  checks.push("local service loads inside a nonempty native viewport without Node.js access");
+  const screenshots = { shell: await screenshotSize(shellClient, "packaged shell"), service: await screenshotSize(guestClient, "packaged service") };
+  checks.push("packaged shell and native service view paint nonempty PNG screenshots");
   await guestClient.evaluate("document.cookie='packaged_smoke=retained; path=/'; true");
   await guestClient.send("Page.reload");
   await poll(() => guestClient.evaluate("document.readyState==='complete' && document.cookie.includes('packaged_smoke=retained')"), "service session cookie after reload");
